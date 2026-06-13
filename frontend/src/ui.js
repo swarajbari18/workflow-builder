@@ -10,7 +10,10 @@ import { shallow } from 'zustand/shallow';
 import { useStore } from './store';
 import { nodeTypes } from './nodes/nodeRegistry';
 import { NODE_SPECS, isConnectionValid } from './nodes/nodeSpecs';
+import { TypedEdge } from './edges/typed-edge';
 import { CANVAS } from './styles/design-tokens';
+
+const edgeTypes = { typed: TypedEdge };
 
 import 'reactflow/dist/style.css';
 
@@ -80,6 +83,7 @@ export const PipelineUI = () => {
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}

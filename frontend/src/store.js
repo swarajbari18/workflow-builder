@@ -5,8 +5,8 @@ import {
     addEdge,
     applyNodeChanges,
     applyEdgeChanges,
-    MarkerType,
   } from 'reactflow';
+import { NODE_SPECS } from './nodes/nodeSpecs';
 
 export const useStore = create((set, get) => ({
     nodes: [],
@@ -36,8 +36,15 @@ export const useStore = create((set, get) => ({
       });
     },
     onConnect: (connection) => {
+      const sourceNode = get().nodes.find((n) => n.id === connection.source);
+      const sourceSpec = sourceNode && NODE_SPECS[sourceNode.type];
+      const sourceHandle = sourceSpec?.handles.find(
+        (h) => `${connection.source}-${h.id}` === connection.sourceHandle,
+      );
+      const dataType = sourceHandle?.dataType ?? 'any';
+
       set({
-        edges: addEdge({...connection, type: 'smoothstep', animated: true, markerEnd: {type: MarkerType.Arrow, height: '20px', width: '20px'}}, get().edges),
+        edges: addEdge({ ...connection, type: 'typed', data: { dataType } }, get().edges),
       });
     },
     // Returns a new node object (rather than mutating in place) so React Flow
