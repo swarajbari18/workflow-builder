@@ -1,14 +1,15 @@
 /**
  * Tests for the generic node renderer.
  *
- * `isFieldVisible` is tested as a pure function; `BaseNode` is tested through the
- * DOM (title, required marker, conditional `showIf` fields, the advanced toggle).
+ * `isFieldVisible` is tested as a pure function — it stays exported for the
+ * inspector (Phase 4). `BaseNode` is tested for Phase 2 visual behavior:
+ * ghost glass material, no fields on node face, execution state dot.
  * A node renders React Flow handles, which require a ReactFlowProvider ancestor.
  */
-import { render, screen, act } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ReactFlowProvider } from 'reactflow';
 import { BaseNode, isFieldVisible } from './baseNode';
+import { CATEGORY_COLORS, EXECUTION_STATES, NODE_CARD } from '../styles/design-tokens';
 
 describe('isFieldVisible', () => {
   const fields = [
@@ -38,6 +39,18 @@ describe('isFieldVisible', () => {
 });
 
 describe('BaseNode', () => {
+  const makeSpec = (overrides = {}) => ({
+    type: 'demo',
+    title: 'My Node',
+    category: 'ai',
+    handles: [],
+    fields: [
+      { name: 'name', kind: 'text', label: 'Name', required: true },
+      { name: 'secret', kind: 'text', label: 'Secret', advanced: true },
+    ],
+    ...overrides,
+  });
+
   const renderNode = (spec, data = {}) =>
     render(
       <ReactFlowProvider>
@@ -46,66 +59,71 @@ describe('BaseNode', () => {
     );
 
   test('renders the node title', () => {
-    renderNode({ type: 'demo', title: 'My Node', handles: [], fields: [] });
+    renderNode(makeSpec());
     expect(screen.getByText('My Node')).toBeInTheDocument();
   });
 
-  test('marks required fields with an asterisk', () => {
-    renderNode({
-      type: 'demo',
-      title: 'Demo',
-      handles: [],
-      fields: [{ name: 'name', kind: 'text', label: 'Name', required: true }],
-    });
-    expect(screen.getByText('Name *')).toBeInTheDocument();
+  test('renders no input, select, or textarea elements on the node face', () => {
+    renderNode(makeSpec());
+    expect(document.querySelector('input')).toBeNull();
+    expect(document.querySelector('select')).toBeNull();
+    expect(document.querySelector('textarea')).toBeNull();
   });
 
-  test('hides a showIf field until its condition is met', () => {
-    renderNode(
-      {
-        type: 'demo',
-        title: 'Demo',
-        handles: [],
-        fields: [
-          { name: 'mode', kind: 'select', label: 'Mode', options: ['a', 'b'], default: 'a' },
-          { name: 'extra', kind: 'text', label: 'Extra', showIf: { mode: 'b' } },
-        ],
-      },
-      { mode: 'a' },
-    );
-    expect(screen.queryByText('Extra')).not.toBeInTheDocument();
+  test('applies ghost glass background from NODE_CARD tokens', () => {
+    const { container } = renderNode(makeSpec());
+    const card = container.firstChild;
+    expect(card.style.background).toBe(NODE_CARD.background);
   });
 
-  test('shows a showIf field when its condition is met', () => {
-    renderNode(
-      {
-        type: 'demo',
-        title: 'Demo',
-        handles: [],
-        fields: [
-          { name: 'mode', kind: 'select', label: 'Mode', options: ['a', 'b'], default: 'a' },
-          { name: 'extra', kind: 'text', label: 'Extra', showIf: { mode: 'b' } },
-        ],
-      },
-      { mode: 'b' },
-    );
-    expect(screen.getByText('Extra')).toBeInTheDocument();
+  test('left border accent uses category color for ai category', () => {
+    const { container } = renderNode(makeSpec({ category: 'ai' }));
+    const card = container.firstChild;
+    expect(card.style.borderLeft).toContain(CATEGORY_COLORS.ai);
   });
 
-  test('reveals advanced fields when the Advanced toggle is clicked', async () => {
-    renderNode({
-      type: 'demo',
-      title: 'Demo',
-      handles: [],
-      fields: [
-        { name: 'x', kind: 'text', label: 'Basic' },
-        { name: 'y', kind: 'text', label: 'Secret', advanced: true },
-      ],
+  test('left border accent uses category color for triggers category', () => {
+    const { container } = renderNode(makeSpec({ category: 'triggers' }));
+    const card = container.firstChild;
+    expect(card.style.borderLeft).toContain(CATEGORY_COLORS.triggers);
+  });
+
+  test('root element has data-execution-state set to idle by default', () => {
+    const { container } = renderNode(makeSpec());
+    expect(container.firstChild.dataset.executionState).toBe('idle');
+  });
+
+  test('root element reflects data.executionState when provided', () => {
+    const { container } = renderNode(makeSpec(), { executionState: 'running' });
+    expect(container.firstChild.dataset.executionState).toBe('running');
+  });
+
+  test('status dot is present in the header', () => {
+    const { container } = renderNode(makeSpec());
+    expect(container.querySelector('[data-status-dot]')).toBeInTheDocument();
+  });
+
+  test('status dot color matches EXECUTION_STATES idle color by default', () => {
+    const { container } = renderNode(makeSpec());
+    const dot = container.querySelector('[data-status-dot]');
+    expect(dot.dataset.statusColor).toBe(EXECUTION_STATES.idle.color);
+  });
+
+  test('status dot color reflects running state', () => {
+    const { container } = renderNode(makeSpec(), { executionState: 'running' });
+    const dot = container.querySelector('[data-status-dot]');
+    expect(dot.dataset.statusColor).toBe(EXECUTION_STATES.running.color);
+  });
+
+  test('handles reveal on mouse enter and hide on mouse leave', () => {
+    const spec = makeSpec({
+      handles: [{ id: 'out', kind: 'source', side: 'right', dataType: 'string' }],
     });
-    expect(screen.queryByText('Secret')).not.toBeInTheDocument();
-    await act(async () => {
-      await userEvent.click(screen.getByText(/Advanced/));
-    });
-    expect(screen.getByText('Secret')).toBeInTheDocument();
+    const { container } = renderNode(spec);
+    const card = container.firstChild;
+    fireEvent.mouseEnter(card);
+    expect(card.dataset.handlesRevealed).toBe('true');
+    fireEvent.mouseLeave(card);
+    expect(card.dataset.handlesRevealed).toBe('false');
   });
 });

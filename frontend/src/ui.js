@@ -5,15 +5,18 @@
  * default field values, and validates proposed edges before they are created.
  */
 import { useState, useRef, useCallback } from 'react';
-import ReactFlow, { Controls, Background, MiniMap } from 'reactflow';
+import ReactFlow, { Controls, Background, BackgroundVariant, MiniMap } from 'reactflow';
 import { shallow } from 'zustand/shallow';
 import { useStore } from './store';
 import { nodeTypes } from './nodes/nodeRegistry';
 import { NODE_SPECS, isConnectionValid } from './nodes/nodeSpecs';
+import { TypedEdge } from './edges/typed-edge';
+import { CANVAS } from './styles/design-tokens';
+
+const edgeTypes = { typed: TypedEdge };
 
 import 'reactflow/dist/style.css';
 
-const GRID_SIZE = 20;
 const proOptions = { hideAttribution: true };
 
 const selector = (state) => ({
@@ -75,11 +78,12 @@ export const PipelineUI = () => {
   }, []);
 
   return (
-    <div ref={reactFlowWrapper} style={{ width: '100vw', height: '70vh' }}>
+    <div ref={reactFlowWrapper} style={{ width: '100vw', height: '70vh', background: CANVAS.background }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -88,10 +92,14 @@ export const PipelineUI = () => {
         onDragOver={onDragOver}
         onInit={setReactFlowInstance}
         proOptions={proOptions}
-        snapGrid={[GRID_SIZE, GRID_SIZE]}
-        connectionLineType="smoothstep"
+        snapGrid={[CANVAS.gridInterval, CANVAS.gridInterval]}
+        connectionLineType="bezier"
       >
-        <Background color="#aaa" gap={GRID_SIZE} />
+        <Background
+          variant={BackgroundVariant.Dots}
+          color={CANVAS.gridDotColor}
+          gap={CANVAS.gridInterval}
+        />
         <Controls />
         <MiniMap />
       </ReactFlow>
