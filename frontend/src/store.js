@@ -1,5 +1,12 @@
-// store.js
-
+/**
+ * Pipeline store — central state for nodes, edges, and canvas interaction.
+ *
+ * Three interaction systems live here alongside the core node/edge state:
+ *   - Connection mode: tracks what the user is dragging and from where,
+ *     so the canvas can dim incompatible nodes and open the palette on drop.
+ *   - Command palette: open/close with optional data-type filter for wire drops.
+ *   - Context menu: one menu at a time, typed by the surface it was opened on.
+ */
 import { create } from "zustand";
 import {
     addEdge,
@@ -11,6 +18,12 @@ import { NODE_SPECS } from './nodes/nodeSpecs';
 export const useStore = create((set, get) => ({
     nodes: [],
     edges: [],
+
+    // React Flow instance — set via onInit in ui.js so dock/palette can call
+    // screenToFlowPosition when placing nodes without a drag event.
+    rfInstance: null,
+    setRFInstance: (instance) => set({ rfInstance: instance }),
+
     getNodeID: (type) => {
         const newIDs = {...get().nodeIDs};
         if (newIDs[type] === undefined) {
@@ -58,4 +71,25 @@ export const useStore = create((set, get) => ({
         ),
       });
     },
+
+    // Connection mode — active while the user is dragging a wire.
+    connectionMode: null,
+    startConnection: (sourceNodeId, sourceHandleId, sourceDataType) =>
+      set({ connectionMode: { sourceNodeId, sourceHandleId, sourceDataType } }),
+    endConnection: () => set({ connectionMode: null }),
+
+    // Command palette — opened by Ctrl+K or wire drop on empty canvas.
+    paletteOpen: false,
+    paletteFilter: null,
+    paletteDropPos: null,
+    openPalette: (filter = null, pos = null) =>
+      set({ paletteOpen: true, paletteFilter: filter, paletteDropPos: pos }),
+    closePalette: () =>
+      set({ paletteOpen: false, paletteFilter: null, paletteDropPos: null }),
+
+    // Context menu — one at a time, keyed by surface type.
+    contextMenu: null,
+    openContextMenu: (type, x, y, target) =>
+      set({ contextMenu: { type, x, y, target } }),
+    closeContextMenu: () => set({ contextMenu: null }),
   }));
