@@ -10,9 +10,10 @@
  * Handle proximity reveal: onMouseEnter/Leave on the card drives `handlesRevealed`
  * state, which is forwarded to each NodeHandle as an opacity signal.
  */
-import { useState } from 'react';
-import { Handle, Position } from 'reactflow';
+import { useState, Fragment } from 'react';
+import { Handle, Position, useStore as useRFStore } from 'reactflow';
 import { NODE_CARD, CATEGORY_COLORS, EXECUTION_STATES, HANDLE } from '../styles/design-tokens';
+import { NodeHandle } from './node-handle';
 
 /**
  * Whether a field should be shown given the current values. A field with a
@@ -80,6 +81,7 @@ export const BaseNode = ({ id, data, spec }) => {
   const [handlesRevealed, setHandlesRevealed] = useState(false);
   const executionState = data.executionState ?? 'idle';
   const stateConfig = EXECUTION_STATES[executionState] ?? EXECUTION_STATES.idle;
+  const edges = useRFStore((state) => state.edges);
 
   return (
     <div
@@ -98,18 +100,35 @@ export const BaseNode = ({ id, data, spec }) => {
         />
       </div>
 
-      {spec.handles.map((handle) => (
-        <Handle
-          key={handle.id}
-          id={`${id}-${handle.id}`}
-          type={handle.kind}
-          position={handle.side === 'left' ? Position.Left : Position.Right}
-          style={{
-            opacity: handlesRevealed ? HANDLE.activeOpacity : HANDLE.restOpacity,
-            ...(handle.offset ? { top: handle.offset } : {}),
-          }}
-        />
-      ))}
+      {spec.handles.map((handle) => {
+        const fullHandleId = `${id}-${handle.id}`;
+        const connected = edges.some(
+          (e) => e.sourceHandle === fullHandleId || e.targetHandle === fullHandleId,
+        );
+        return (
+          <Fragment key={handle.id}>
+            {/* Invisible RF Handle — provides the 32px hit area and connection logic */}
+            <Handle
+              id={fullHandleId}
+              type={handle.kind}
+              position={handle.side === 'left' ? Position.Left : Position.Right}
+              style={{
+                width: HANDLE.hitSize,
+                height: HANDLE.hitSize,
+                background: 'transparent',
+                border: 'none',
+                ...(handle.offset ? { top: handle.offset } : {}),
+              }}
+            />
+            {/* Visual NodeHandle — absolutely positioned at the same node edge */}
+            <NodeHandle
+              handle={handle}
+              revealed={handlesRevealed}
+              connected={connected}
+            />
+          </Fragment>
+        );
+      })}
     </div>
   );
 };
