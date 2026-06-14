@@ -38,7 +38,7 @@ const NODE_DESCRIPTIONS = {
   cron:         'Start a pipeline on a scheduled time interval',
   condition:    'Branch the pipeline based on a condition',
   apiRequest:   'Make an HTTP request — exposes itself as an LLM tool',
-  script:       'AI-generated code transform — runs in a sandbox',
+  script:       'Run a Python transform on your input — describe it, AI writes the code',
 };
 
 const storeSelector = (s) => ({
