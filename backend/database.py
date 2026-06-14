@@ -160,6 +160,29 @@ class Database:
         self._conn.commit()
         return self.get_workflow(workflow_id)
 
+    def find_workflow_by_webhook_path(self, path: str) -> dict | None:
+        """
+        Scans all saved workflows for one whose definition contains a webhook
+        node with data.path matching the given path string.
+
+        Used by POST /webhook/{path} to resolve which workflow to execute
+        when an external system fires a webhook at our server.
+
+        This is a linear scan — fine for dozens of workflows (typical product use).
+        If the user has thousands of workflows, add a denormalised index column.
+        """
+        rows = self._conn.execute("SELECT * FROM workflows").fetchall()
+        for row in rows:
+            wf = _deserialise_workflow(row)
+            nodes = wf.get("definition", {}).get("nodes", [])
+            for node in nodes:
+                if node.get("type") == "webhook":
+                    node_path = node.get("data", {}).get("path", "")
+                    # Normalise: strip trailing slashes, compare case-insensitively
+                    if node_path.rstrip("/").lower() == path.rstrip("/").lower():
+                        return wf
+        return None
+
     # ------------------------------------------------------------------
     # Runs
     # ------------------------------------------------------------------

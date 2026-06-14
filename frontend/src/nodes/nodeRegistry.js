@@ -6,6 +6,7 @@
 import { BaseNode } from './baseNode';
 import { OutputNode } from './output-node';
 import { TextNode } from './text-node';
+import { WebhookNode } from './webhook-node';
 import { NODE_SPECS } from './nodeSpecs';
 
 // A few node types need more than the generic card (an inline body or dynamic
@@ -13,6 +14,7 @@ import { NODE_SPECS } from './nodeSpecs';
 const CUSTOM_RENDERERS = {
   customOutput: OutputNode,
   text: TextNode,
+  webhook: WebhookNode,
 };
 
 /**
