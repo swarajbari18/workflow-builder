@@ -1,15 +1,13 @@
 /**
- * App — composes the pipeline builder: the node palette, the canvas, and the
- * submit control.
+ * App — the pipeline builder. The Dock (inside PipelineUI) replaces the old
+ * PipelineToolbar; SubmitButton remains for pipeline execution.
  */
-import { PipelineToolbar } from './toolbar';
 import { PipelineUI } from './ui';
 import { SubmitButton } from './submit';
 
 function App() {
   return (
-    <div>
-      <PipelineToolbar />
+    <div style={{ position: 'relative' }}>
       <PipelineUI />
       <SubmitButton />
     </div>

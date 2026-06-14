@@ -1,43 +1,46 @@
 /**
- * PipelineUI — the React Flow canvas.
- *
- * Renders every node through the spec-driven registry, seeds new nodes with their
- * default field values, and validates proposed edges before they are created.
+ * PipelineUI — the React Flow canvas with all Phase 3 interaction systems wired in:
+ *   - Dock (bottom) replaces the toolbar
+ *   - CommandPalette (Ctrl/Cmd+K or wire-drop triggered)
+ *   - ContextMenu (right-click on node, edge, or canvas)
+ *   - Connection mode (dims canvas + highlights compatible nodes while dragging a wire)
+ *   - GhostWorkflow (semi-transparent example shown on first open)
  */
-import { useState, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import ReactFlow, { Controls, Background, BackgroundVariant, MiniMap } from 'reactflow';
 import { shallow } from 'zustand/shallow';
 import { useStore } from './store';
 import { nodeTypes } from './nodes/nodeRegistry';
 import { NODE_SPECS, isConnectionValid } from './nodes/nodeSpecs';
 import { TypedEdge } from './edges/typed-edge';
+import { Dock } from './canvas/dock';
+import { CommandPalette } from './canvas/command-palette';
+import { ContextMenu } from './canvas/context-menu';
+import { GhostWorkflow } from './canvas/ghost-workflow';
 import { CANVAS } from './styles/design-tokens';
-
-const edgeTypes = { typed: TypedEdge };
-
 import 'reactflow/dist/style.css';
 
+const edgeTypes = { typed: TypedEdge };
 const proOptions = { hideAttribution: true };
 
 const selector = (state) => ({
-  nodes: state.nodes,
-  edges: state.edges,
-  getNodeID: state.getNodeID,
-  addNode: state.addNode,
-  onNodesChange: state.onNodesChange,
-  onEdgesChange: state.onEdgesChange,
-  onConnect: state.onConnect,
+  nodes:            state.nodes,
+  edges:            state.edges,
+  getNodeID:        state.getNodeID,
+  addNode:          state.addNode,
+  onNodesChange:    state.onNodesChange,
+  onEdgesChange:    state.onEdgesChange,
+  onConnect:        state.onConnect,
+  setRFInstance:    state.setRFInstance,
+  rfInstance:       state.rfInstance,
+  startConnection:  state.startConnection,
+  endConnection:    state.endConnection,
+  openPalette:      state.openPalette,
+  openContextMenu:  state.openContextMenu,
+  closeContextMenu: state.closeContextMenu,
+  connectionMode:   state.connectionMode,
 });
 
-/**
- * Builds the initial `data` for a new node, seeded with its spec's default field
- * values so the node carries sensible values (and conditional fields resolve)
- * before the user edits anything.
- *
- * @param {string} nodeId
- * @param {string} type
- * @returns {Object}
- */
 const buildInitialData = (nodeId, type) => {
   const data = { id: nodeId, nodeType: type };
   NODE_SPECS[type]?.fields.forEach((field) => {
@@ -48,28 +51,52 @@ const buildInitialData = (nodeId, type) => {
 
 export const PipelineUI = () => {
   const reactFlowWrapper = useRef(null);
-  const [reactFlowInstance, setReactFlowInstance] = useState(null);
-  const { nodes, edges, getNodeID, addNode, onNodesChange, onEdgesChange, onConnect } = useStore(selector, shallow);
+  const {
+    nodes, edges,
+    getNodeID, addNode,
+    onNodesChange, onEdgesChange, onConnect,
+    setRFInstance, rfInstance,
+    startConnection, endConnection,
+    openPalette,
+    openContextMenu, closeContextMenu,
+    connectionMode,
+  } = useStore(selector, shallow);
 
+  // Ctrl/Cmd+K → open command palette
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        openPalette();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [openPalette]);
+
+  // Drag-drop from Dock (legacy .project() → .screenToFlowPosition())
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
-
       const transferred = event.dataTransfer?.getData('application/reactflow');
       if (!transferred) return;
       const { nodeType } = JSON.parse(transferred);
       if (!nodeType) return;
 
-      const bounds = reactFlowWrapper.current.getBoundingClientRect();
-      const position = reactFlowInstance.project({
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
-      });
+      const instance = rfInstance ?? useStore.getState().rfInstance;
+      if (!instance) return;
+
+      const position = instance.screenToFlowPosition
+        ? instance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+        : instance.project({
+            x: event.clientX - reactFlowWrapper.current.getBoundingClientRect().left,
+            y: event.clientY - reactFlowWrapper.current.getBoundingClientRect().top,
+          });
 
       const nodeId = getNodeID(nodeType);
       addNode({ id: nodeId, type: nodeType, position, data: buildInitialData(nodeId, nodeType) });
     },
-    [reactFlowInstance, getNodeID, addNode],
+    [rfInstance, getNodeID, addNode],
   );
 
   const onDragOver = useCallback((event) => {
@@ -77,8 +104,80 @@ export const PipelineUI = () => {
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
+  // Connection mode — dims canvas and highlights compatible nodes
+  const onConnectStart = useCallback(
+    (_, { nodeId, handleId, handleType }) => {
+      if (handleType !== 'source') return;
+      const node = nodes.find((n) => n.id === nodeId);
+      const spec = node && NODE_SPECS[node.type];
+      const handle = spec?.handles.find((h) => `${nodeId}-${h.id}` === handleId);
+      startConnection(nodeId, handleId, handle?.dataType ?? 'any');
+    },
+    [nodes, startConnection],
+  );
+
+  const onConnectEnd = useCallback(
+    (event) => {
+      endConnection();
+
+      // If the wire was dropped on empty canvas (not onto a node handle), open palette
+      if (!event.target?.closest('.react-flow__handle')) {
+        const instance = rfInstance ?? useStore.getState().rfInstance;
+        const pos = instance?.screenToFlowPosition
+          ? instance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+          : null;
+        const { connectionMode: cm } = useStore.getState();
+        if (cm) openPalette(cm.sourceDataType, pos);
+      }
+    },
+    [endConnection, rfInstance, openPalette],
+  );
+
+  // Context menus
+  const onNodeContextMenu = useCallback(
+    (event, node) => {
+      event.preventDefault();
+      closeContextMenu();
+      openContextMenu('node', event.clientX, event.clientY, { id: node.id });
+    },
+    [openContextMenu, closeContextMenu],
+  );
+
+  const onEdgeContextMenu = useCallback(
+    (event, edge) => {
+      event.preventDefault();
+      closeContextMenu();
+      openContextMenu('edge', event.clientX, event.clientY, edge);
+    },
+    [openContextMenu, closeContextMenu],
+  );
+
+  const onPaneContextMenu = useCallback(
+    (event) => {
+      event.preventDefault();
+      closeContextMenu();
+      openContextMenu('pane', event.clientX, event.clientY, { x: event.clientX, y: event.clientY });
+    },
+    [openContextMenu, closeContextMenu],
+  );
+
+  // Click on pane dismisses context menu
+  const onPaneClick = useCallback(() => {
+    closeContextMenu();
+  }, [closeContextMenu]);
+
+  const wrapperStyle = {
+    position: 'relative',
+    width: '100vw',
+    height: '100vh',
+    background: CANVAS.background,
+    // Dim the canvas when connection mode is active
+    filter: connectionMode ? 'brightness(0.55)' : undefined,
+    transition: 'filter 200ms ease',
+  };
+
   return (
-    <div ref={reactFlowWrapper} style={{ width: '100vw', height: '70vh', background: CANVAS.background }}>
+    <div ref={reactFlowWrapper} style={wrapperStyle}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -87,13 +186,20 @@ export const PipelineUI = () => {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
         isValidConnection={(connection) => isConnectionValid(connection, nodes, edges)}
         onDrop={onDrop}
         onDragOver={onDragOver}
-        onInit={setReactFlowInstance}
+        onInit={setRFInstance}
+        onNodeContextMenu={onNodeContextMenu}
+        onEdgeContextMenu={onEdgeContextMenu}
+        onPaneContextMenu={onPaneContextMenu}
+        onPaneClick={onPaneClick}
         proOptions={proOptions}
         snapGrid={[CANVAS.gridInterval, CANVAS.gridInterval]}
         connectionLineType="bezier"
+        style={{ width: '100%', height: '100%' }}
       >
         <Background
           variant={BackgroundVariant.Dots}
@@ -101,8 +207,19 @@ export const PipelineUI = () => {
           gap={CANVAS.gridInterval}
         />
         <Controls />
-        <MiniMap />
+        <MiniMap
+          nodeColor="#2D2D30"
+          nodeStrokeColor="rgba(255,255,255,0.10)"
+          maskColor="rgba(13,13,15,0.80)"
+          style={{ background: '#1A1A1E', border: '1px solid rgba(255,255,255,0.08)' }}
+        />
+        <GhostWorkflow />
       </ReactFlow>
+
+      {/* Overlays above the canvas */}
+      <Dock />
+      <CommandPalette />
+      <ContextMenu />
     </div>
   );
 };

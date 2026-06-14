@@ -51,7 +51,6 @@ const cardStyle = (category) => ({
   fontSize: 12,
   color: 'rgba(255,255,255,0.9)',
   willChange: 'transform',
-  contain: 'layout style paint',
 });
 
 const headerStyle = {
@@ -77,11 +76,28 @@ const statusDotStyle = (color) => ({
  *
  * @param {{ id: string, data: Object, spec: import('./nodeSpecs').NodeSpec }} props
  */
+const handleRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  padding: '2px 12px',
+};
+
+const handleLabelStyle = {
+  color: 'rgba(255,255,255,0.40)',
+  fontSize: 11,
+  letterSpacing: '0.01em',
+  fontFamily: 'Inter, sans-serif',
+};
+
 export const BaseNode = ({ id, data, spec }) => {
   const [handlesRevealed, setHandlesRevealed] = useState(false);
   const executionState = data.executionState ?? 'idle';
   const stateConfig = EXECUTION_STATES[executionState] ?? EXECUTION_STATES.idle;
   const edges = useRFStore((state) => state.edges);
+
+  const leftHandles = spec.handles.filter((h) => h.side === 'left');
+  const rightHandles = spec.handles.filter((h) => h.side === 'right');
+  const rowCount = Math.max(leftHandles.length, rightHandles.length, 1);
 
   return (
     <div
@@ -100,6 +116,22 @@ export const BaseNode = ({ id, data, spec }) => {
         />
       </div>
 
+      {/* Handle label rows — each row pairs one left handle with one right handle */}
+      <div style={{ padding: '4px 0 8px 0' }}>
+        {Array.from({ length: rowCount }, (_, i) => {
+          const left = leftHandles[i];
+          const right = rightHandles[i];
+          const leftLabel = left?.label ?? left?.id;
+          const rightLabel = right?.label ?? right?.id;
+          return (
+            <div key={i} style={handleRowStyle}>
+              <span style={handleLabelStyle}>{leftLabel ? `◁ ${leftLabel}` : ''}</span>
+              <span style={handleLabelStyle}>{rightLabel ? `${rightLabel} ▷` : ''}</span>
+            </div>
+          );
+        })}
+      </div>
+
       {spec.handles.map((handle) => {
         const fullHandleId = `${id}-${handle.id}`;
         const connected = edges.some(
@@ -107,7 +139,6 @@ export const BaseNode = ({ id, data, spec }) => {
         );
         return (
           <Fragment key={handle.id}>
-            {/* Invisible RF Handle — provides the 32px hit area and connection logic */}
             <Handle
               id={fullHandleId}
               type={handle.kind}
@@ -120,7 +151,6 @@ export const BaseNode = ({ id, data, spec }) => {
                 ...(handle.offset ? { top: handle.offset } : {}),
               }}
             />
-            {/* Visual NodeHandle — absolutely positioned at the same node edge */}
             <NodeHandle
               handle={handle}
               revealed={handlesRevealed}
