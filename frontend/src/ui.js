@@ -16,6 +16,7 @@ import { TypedEdge } from './edges/typed-edge';
 import { Dock } from './canvas/dock';
 import { CommandPalette } from './canvas/command-palette';
 import { ContextMenu } from './canvas/context-menu';
+import { Inspector } from './canvas/inspector';
 import { GhostWorkflow } from './canvas/ghost-workflow';
 import { CANVAS } from './styles/design-tokens';
 import 'reactflow/dist/style.css';
@@ -38,6 +39,8 @@ const selector = (state) => ({
   openPalette:      state.openPalette,
   openContextMenu:  state.openContextMenu,
   closeContextMenu: state.closeContextMenu,
+  openInspector:    state.openInspector,
+  closeInspector:   state.closeInspector,
   connectionMode:   state.connectionMode,
 });
 
@@ -59,6 +62,7 @@ export const PipelineUI = () => {
     startConnection, endConnection,
     openPalette,
     openContextMenu, closeContextMenu,
+    openInspector, closeInspector,
     connectionMode,
   } = useStore(selector, shallow);
 
@@ -161,10 +165,17 @@ export const PipelineUI = () => {
     [openContextMenu, closeContextMenu],
   );
 
-  // Click on pane dismisses context menu
+  // Selecting a node opens the inspector for it
+  const onNodeClick = useCallback(
+    (_, node) => openInspector(node.id),
+    [openInspector],
+  );
+
+  // Click on empty canvas dismisses the context menu and the inspector
   const onPaneClick = useCallback(() => {
     closeContextMenu();
-  }, [closeContextMenu]);
+    closeInspector();
+  }, [closeContextMenu, closeInspector]);
 
   const wrapperStyle = {
     position: 'relative',
@@ -192,6 +203,7 @@ export const PipelineUI = () => {
         onDrop={onDrop}
         onDragOver={onDragOver}
         onInit={setRFInstance}
+        onNodeClick={onNodeClick}
         onNodeContextMenu={onNodeContextMenu}
         onEdgeContextMenu={onEdgeContextMenu}
         onPaneContextMenu={onPaneContextMenu}
@@ -220,6 +232,7 @@ export const PipelineUI = () => {
       <Dock />
       <CommandPalette />
       <ContextMenu />
+      <Inspector />
     </div>
   );
 };
