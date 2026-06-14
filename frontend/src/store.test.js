@@ -16,6 +16,7 @@ beforeEach(() => {
     paletteDropPos: null,
     contextMenu: null,
     dagStatus: 'pristine',
+    nodeRoles: {},
   });
 });
 
@@ -111,10 +112,18 @@ describe('DAG status state machine', () => {
     expect(useStore.getState().dagStatus).toBe('pristine');
   });
 
-  test('onNodesChange resets dagStatus from valid to pristine', () => {
+  test('onNodesChange resets dagStatus from valid to pristine on structural change', () => {
     useStore.setState({ dagStatus: 'valid' });
-    useStore.getState().onNodesChange([{ type: 'position', id: 'n-1', position: { x: 1, y: 1 } }]);
+    // 'remove' is structural — it changes topology, so dagStatus must reset.
+    useStore.getState().onNodesChange([{ type: 'remove', id: 'n-1' }]);
     expect(useStore.getState().dagStatus).toBe('pristine');
+  });
+
+  test('onNodesChange does NOT reset dagStatus on position-only change', () => {
+    useStore.setState({ dagStatus: 'valid' });
+    // 'position' is non-structural — moving a node does not affect DAG validity.
+    useStore.getState().onNodesChange([{ type: 'position', id: 'n-1', position: { x: 1, y: 1 } }]);
+    expect(useStore.getState().dagStatus).toBe('valid');
   });
 
   test('onEdgesChange resets dagStatus from valid to pristine', () => {
@@ -139,7 +148,12 @@ describe('DAG status state machine', () => {
   test('submitPipeline sets dagStatus to pending then resolves to valid', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ num_nodes: 2, num_edges: 1, is_dag: true }),
+      json: async () => ({
+        num_nodes: 2, num_edges: 1, is_dag: true,
+        topo_order: ['n-1', 'n-2'],
+        subgraph_members: [], tool_nodes: [],
+        cycle_nodes: [], cycle_back_edge_sources: [],
+      }),
     });
 
     useStore.setState({
@@ -147,19 +161,26 @@ describe('DAG status state machine', () => {
         { id: 'n-1', type: 'customInput', position: { x: 0, y: 0 }, data: {} },
         { id: 'n-2', type: 'customOutput', position: { x: 200, y: 0 }, data: {} },
       ],
-      edges: [{ id: 'e-1', source: 'n-1', target: 'n-2' }],
+      edges: [{ id: 'e-1', source: 'n-1', target: 'n-2', data: {} }],
     });
 
     const promise = useStore.getState().submitPipeline();
     expect(useStore.getState().dagStatus).toBe('pending');
     await promise;
     expect(useStore.getState().dagStatus).toBe('valid');
+    expect(useStore.getState().nodeRoles['n-1']).toBe('outer');
+    expect(useStore.getState().nodeRoles['n-2']).toBe('outer');
   });
 
   test('submitPipeline resolves to invalid when backend returns is_dag: false', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ num_nodes: 2, num_edges: 2, is_dag: false }),
+      json: async () => ({
+        num_nodes: 2, num_edges: 2, is_dag: false,
+        topo_order: [],
+        subgraph_members: [], tool_nodes: [],
+        cycle_nodes: ['n-1', 'n-2'], cycle_back_edge_sources: ['n-2'],
+      }),
     });
 
     await useStore.getState().submitPipeline();

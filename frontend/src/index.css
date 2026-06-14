@@ -23,3 +23,56 @@ code {
 .dag-status-valid-enter {
   animation: dag-valid-entry 280ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
+
+/* ─── DAG Role Highlights ─────────────────────────────────────────────────── */
+
+/* Outer execution node — green glow sweeps in and holds */
+@keyframes role-outer-enter {
+  from { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0); }
+  to   { box-shadow: 0 0 0 2px rgba(52, 199, 89, 0.6), 0 0 20px rgba(52, 199, 89, 0.18); }
+}
+.node-role-outer {
+  animation: role-outer-enter 300ms ease-out both;
+  box-shadow: 0 0 0 2px rgba(52, 199, 89, 0.6), 0 0 20px rgba(52, 199, 89, 0.18) !important;
+}
+
+/* Loop body (subgraph) node — purple ambient */
+@keyframes role-subgraph-enter {
+  from { box-shadow: 0 0 0 0 rgba(191, 90, 242, 0); }
+  to   { box-shadow: 0 0 0 2px rgba(191, 90, 242, 0.55), 0 0 18px rgba(191, 90, 242, 0.15); }
+}
+.node-role-subgraph {
+  animation: role-subgraph-enter 300ms ease-out both;
+  box-shadow: 0 0 0 2px rgba(191, 90, 242, 0.55), 0 0 18px rgba(191, 90, 242, 0.15) !important;
+}
+
+/* Tool node (fn-schema) — orange ambient */
+@keyframes role-tool-enter {
+  from { box-shadow: 0 0 0 0 rgba(255, 149, 0, 0); }
+  to   { box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.55), 0 0 18px rgba(255, 149, 0, 0.15); }
+}
+.node-role-tool {
+  animation: role-tool-enter 300ms ease-out both;
+  box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.55), 0 0 18px rgba(255, 149, 0, 0.15) !important;
+}
+
+/* Cycle node — red glow */
+@keyframes role-cycle-enter {
+  from { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); }
+  to   { box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.7), 0 0 22px rgba(255, 59, 48, 0.22); }
+}
+.node-role-cycle {
+  animation: role-cycle-enter 300ms ease-out both;
+  box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.7), 0 0 22px rgba(255, 59, 48, 0.22) !important;
+}
+
+/* Cycle terminus (back-edge source) — harsh pulsing red — "look here" */
+@keyframes role-terminus-pulse {
+  0%   { box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.9), 0 0 28px rgba(255, 59, 48, 0.5); }
+  50%  { box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.5), 0 0 14px rgba(255, 59, 48, 0.2); }
+  100% { box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.9), 0 0 28px rgba(255, 59, 48, 0.5); }
+}
+.node-role-cycle-terminus {
+  box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.9), 0 0 28px rgba(255, 59, 48, 0.5) !important;
+  animation: role-terminus-pulse 1.4s ease-in-out infinite;
+}
