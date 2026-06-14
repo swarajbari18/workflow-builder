@@ -12,8 +12,10 @@
  */
 import { useState, Fragment } from 'react';
 import { Handle, Position, useStore as useRFStore } from 'reactflow';
-import { NODE_CARD, CATEGORY_COLORS, EXECUTION_STATES, HANDLE } from '../styles/design-tokens';
+import { NODE_CARD, CATEGORY_COLORS, EXECUTION_STATES, HANDLE, CONNECTION_MODE } from '../styles/design-tokens';
 import { NodeHandle } from './node-handle';
+import { useStore } from '../store';
+import { isCompatibleTypes } from './nodeSpecs';
 
 /**
  * Whether a field should be shown given the current values. A field with a
@@ -108,11 +110,30 @@ export const BaseNode = ({ id, data, spec, extraHandles, children }) => {
   const rightHandles = handles.filter((h) => h.side === 'right');
   const rowCount = Math.max(leftHandles.length, rightHandles.length, 1);
 
+  // While a wire is being dragged, light up nodes that can receive it and dim the rest,
+  // so the user can see where a connection is allowed without trial and error.
+  const connectionMode = useStore((s) => s.connectionMode);
+  const isDragSource = connectionMode?.sourceNodeId === id;
+  const canReceive =
+    !!connectionMode &&
+    !isDragSource &&
+    handles.some(
+      (h) => h.kind === 'target' && isCompatibleTypes(connectionMode.sourceDataType, h.dataType),
+    );
+  const isIncompatible = !!connectionMode && !isDragSource && !canReceive;
+
+  const connectionStyle = canReceive
+    ? { boxShadow: CONNECTION_MODE.compatibleGlow }
+    : isIncompatible
+      ? { opacity: CONNECTION_MODE.incompatibleOpacity }
+      : null;
+
   return (
     <div
-      style={cardStyle(spec.category)}
+      style={{ ...cardStyle(spec.category), ...connectionStyle, transition: 'opacity 150ms ease, box-shadow 150ms ease' }}
       data-execution-state={executionState}
       data-handles-revealed={String(handlesRevealed)}
+      data-connection-target={canReceive ? 'compatible' : isIncompatible ? 'incompatible' : undefined}
       onMouseEnter={() => setHandlesRevealed(true)}
       onMouseLeave={() => setHandlesRevealed(false)}
     >

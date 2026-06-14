@@ -13,6 +13,7 @@ import { useStore } from './store';
 import { nodeTypes } from './nodes/nodeRegistry';
 import { NODE_SPECS, isConnectionValid } from './nodes/nodeSpecs';
 import { TypedEdge } from './edges/typed-edge';
+import { ConnectionLine } from './edges/connection-line';
 import { Dock } from './canvas/dock';
 import { CommandPalette } from './canvas/command-palette';
 import { ContextMenu } from './canvas/context-menu';
@@ -41,7 +42,6 @@ const selector = (state) => ({
   closeContextMenu: state.closeContextMenu,
   openInspector:    state.openInspector,
   closeInspector:   state.closeInspector,
-  connectionMode:   state.connectionMode,
 });
 
 const buildInitialData = (nodeId, type) => {
@@ -63,7 +63,6 @@ export const PipelineUI = () => {
     openPalette,
     openContextMenu, closeContextMenu,
     openInspector, closeInspector,
-    connectionMode,
   } = useStore(selector, shallow);
 
   // Ctrl/Cmd+K → open command palette
@@ -182,9 +181,6 @@ export const PipelineUI = () => {
     width: '100vw',
     height: '100vh',
     background: CANVAS.background,
-    // Dim the canvas when connection mode is active
-    filter: connectionMode ? 'brightness(0.55)' : undefined,
-    transition: 'filter 200ms ease',
   };
 
   return (
@@ -210,7 +206,7 @@ export const PipelineUI = () => {
         onPaneClick={onPaneClick}
         proOptions={proOptions}
         snapGrid={[CANVAS.gridInterval, CANVAS.gridInterval]}
-        connectionLineType="bezier"
+        connectionLineComponent={ConnectionLine}
         style={{ width: '100%', height: '100%' }}
       >
         <Background
