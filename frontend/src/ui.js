@@ -19,6 +19,10 @@ import { CommandPalette } from './canvas/command-palette';
 import { ContextMenu } from './canvas/context-menu';
 import { Inspector } from './canvas/inspector';
 import { GhostWorkflow } from './canvas/ghost-workflow';
+import { GlobalStatePanel } from './canvas/global-state-panel';
+import { NodeInspectionCard } from './canvas/node-inspection-card';
+import { NodeTestPanel } from './canvas/node-test-panel';
+import { SuspensionModal } from './canvas/suspension-modal';
 import { CANVAS } from './styles/design-tokens';
 import 'reactflow/dist/style.css';
 
@@ -42,11 +46,20 @@ const selector = (state) => ({
   closeContextMenu: state.closeContextMenu,
   openInspector:    state.openInspector,
   closeInspector:   state.closeInspector,
+  // Phase 8 panel visibility
+  statePanelOpen:   state.statePanelOpen,
+  inspectedNodeId:  state.inspectedNodeId,
+  testPanelNodeId:  state.testPanelNodeId,
 });
 
 const buildInitialData = (nodeId, type) => {
-  const data = { id: nodeId, nodeType: type };
-  NODE_SPECS[type]?.fields.forEach((field) => {
+  const spec = NODE_SPECS[type];
+  const data = {
+    id: nodeId,
+    nodeType: type,
+    execution: spec?.execution ? { ...spec.execution } : undefined,
+  };
+  spec?.fields.forEach((field) => {
     if (field.default !== undefined) data[field.name] = field.default;
   });
   return data;
@@ -63,6 +76,7 @@ export const PipelineUI = () => {
     openPalette,
     openContextMenu, closeContextMenu,
     openInspector, closeInspector,
+    statePanelOpen, inspectedNodeId, testPanelNodeId,
   } = useStore(selector, shallow);
 
   // Ctrl/Cmd+K → open command palette
@@ -97,7 +111,15 @@ export const PipelineUI = () => {
           });
 
       const nodeId = getNodeID(nodeType);
-      addNode({ id: nodeId, type: nodeType, position, data: buildInitialData(nodeId, nodeType) });
+      const spec = NODE_SPECS[nodeType];
+      addNode({
+        id: nodeId,
+        type: nodeType,
+        position,
+        data: buildInitialData(nodeId, nodeType),
+        // Ensure width/height are initialized if the spec or CSS defines them
+        // to avoid layout shifts when handles appear.
+      });
     },
     [rfInstance, getNodeID, addNode],
   );
@@ -229,6 +251,12 @@ export const PipelineUI = () => {
       <CommandPalette />
       <ContextMenu />
       <Inspector />
+      {/* Phase 8 — Execution UX panels (reactive via store selectors) */}
+      {statePanelOpen && <GlobalStatePanel />}
+      {inspectedNodeId && <NodeInspectionCard />}
+      {testPanelNodeId && <NodeTestPanel />}
+      {/* Suspension modal — dev mode inline input gate */}
+      <SuspensionModal />
     </div>
   );
 };

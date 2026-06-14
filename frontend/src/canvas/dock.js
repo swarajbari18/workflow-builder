@@ -93,6 +93,8 @@ const storeSelector = (s) => ({
   submitPipeline:  s.submitPipeline,
   runPipeline:     s.runPipeline,
   runStatus:       s.runStatus,
+  toggleStatePanel: s.toggleStatePanel,
+  statePanelOpen:  s.statePanelOpen,
 });
 
 const glassStyle = {
@@ -290,10 +292,24 @@ function DagStatusButton({ dagStatus, onSubmit }) {
   );
 }
 
+const buildInitialData = (nodeId, type) => {
+  const spec = NODE_SPECS[type];
+  const data = {
+    id: nodeId,
+    nodeType: type,
+    execution: spec?.execution ? { ...spec.execution } : undefined,
+  };
+  spec?.fields.forEach((field) => {
+    if (field.default !== undefined) data[field.name] = field.default;
+  });
+  return data;
+};
+
 export function Dock() {
   const {
     addNode, getNodeID, rfInstance, openPalette,
     nodeCount, dagStatus, submitPipeline, runPipeline, runStatus,
+    toggleStatePanel, statePanelOpen,
   } = useStore(storeSelector, shallow);
 
   const isRunning   = runStatus === 'running';
@@ -333,7 +349,7 @@ export function Dock() {
           : rfInstance.project(viewportCentre);
         position = { x: centre.x - 110 + cascade, y: centre.y - 40 + cascade };
       }
-      addNode({ id, type: spec.type, position, data: { id, nodeType: spec.type } });
+      addNode({ id, type: spec.type, position, data: buildInitialData(id, spec.type) });
       setActiveCategory(null);
     },
     [addNode, getNodeID, rfInstance, nodeCount],
@@ -405,7 +421,12 @@ export function Dock() {
 
           <DagStatusButton dagStatus={dagStatus} onSubmit={submitPipeline} />
 
-          <button data-testid="dock-state-btn" style={iconBtnStyle} title="Global state">
+          <button
+            data-testid="dock-state-btn"
+            style={{ ...iconBtnStyle, color: statePanelOpen ? '#34C759' : 'rgba(255,255,255,0.82)' }}
+            title="Global State panel"
+            onClick={toggleStatePanel}
+          >
             ◉
           </button>
           <button

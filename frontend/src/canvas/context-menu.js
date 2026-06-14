@@ -17,9 +17,13 @@ import { useStore } from '../store';
 import { DATA_TYPE_COLORS, LIQUID_GLASS } from '../styles/design-tokens';
 
 const storeSelector = (s) => ({
-  contextMenu:      s.contextMenu,
-  closeContextMenu: s.closeContextMenu,
-  openPalette:      s.openPalette,
+  contextMenu:         s.contextMenu,
+  closeContextMenu:    s.closeContextMenu,
+  openPalette:         s.openPalette,
+  openInspectionCard:  s.openInspectionCard,
+  openTestPanel:       s.openTestPanel,
+  runFromNode:         s.runFromNode,
+  runStatus:           s.runStatus,
 });
 
 const menuStyle = (x, y) => ({
@@ -110,9 +114,44 @@ function PaneMenu({ closeContextMenu, openPalette, palettePos }) {
   );
 }
 
-function NodeMenu({ nodeId }) {
+function NodeMenu({ nodeId, closeContextMenu }) {
+  const { openInspectionCard, openTestPanel, runFromNode, runStatus } = useStore((s) => ({
+    openInspectionCard: s.openInspectionCard,
+    openTestPanel:      s.openTestPanel,
+    runFromNode:        s.runFromNode,
+    runStatus:          s.runStatus,
+  }));
   return (
     <>
+      <MenuItem
+        testId="ctx-inspect"
+        onClick={() => {
+          openInspectionCard(nodeId);
+          closeContextMenu();
+        }}
+      >
+        Inspect output
+      </MenuItem>
+      <MenuItem
+        testId="ctx-test"
+        onClick={() => {
+          openTestPanel(nodeId);
+          closeContextMenu();
+        }}
+      >
+        Test this node
+      </MenuItem>
+      <MenuItem
+        testId="ctx-run-from"
+        onClick={() => {
+          runFromNode(nodeId);
+          closeContextMenu();
+        }}
+        style={{ ...menuItemStyle, color: runStatus === 'running' ? 'rgba(255,255,255,0.35)' : '#5AC8FA' }}
+      >
+        Run from here
+      </MenuItem>
+      <div style={menuSeparatorStyle} />
       <MenuItem
         testId="ctx-rename"
         onClick={() => useStore.setState({ contextMenu: null })}
@@ -206,7 +245,7 @@ export function ContextMenu() {
         />
       )}
       {type === 'node' && (
-        <NodeMenu nodeId={target?.id} />
+        <NodeMenu nodeId={target?.id} closeContextMenu={closeContextMenu} />
       )}
       {type === 'edge' && <EdgeMenu edge={target} />}
     </div>

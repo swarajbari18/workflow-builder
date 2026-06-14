@@ -10,12 +10,11 @@ Implements the two-table schema from DESIGN-VISION.md Decision 5:
 
 Design choices:
   - Raw sqlite3 stdlib — no ORM, per Decision 5.
-  - check_same_thread=False: FastAPI runs sync routes in a threadpool, so the
-    connection may be used from a thread that didn't create it.
+  - threading.local(): ensures each thread gets its own persistent connection
+    to the same SQLite file.
   - JSON columns stored as TEXT; Python dicts serialised to/from JSON at the
     boundary here, so callers always see native Python types.
-  - The Database class owns one connection. For the API server, a single instance
-    is created at startup and injected via FastAPI's dependency injection.
+  - The Database class owns one connection (per thread).
   - ':memory:' is accepted as db_path for test isolation (one per test, no cleanup).
 
 The execution engine (Phase 6) calls update_run() after every node completes —
@@ -25,6 +24,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+import threading
 from datetime import datetime, timezone
 
 
@@ -73,17 +73,48 @@ class Database:
     """
 
     def __init__(self, db_path: str):
-        self._conn = sqlite3.connect(
-            db_path,
-            check_same_thread=False,  # FastAPI threadpool may call from any thread
-        )
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")  # better concurrency
-        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._db_path = db_path
+        # :memory: databases are per-connection; for tests we need ONE shared
+        # connection visible across threads (test thread + request thread).
+        # File-based DBs use per-thread connections with WAL for concurrency.
+        self._is_memory = (db_path == ":memory:")
+        self._lock = threading.Lock()
+        if self._is_memory:
+            # Shared connection — all threads see the same in-memory DB.
+            self._shared_conn = sqlite3.connect(db_path, check_same_thread=False)
+            self._shared_conn.row_factory = sqlite3.Row
+            self._shared_conn.execute("PRAGMA foreign_keys=ON")
+        else:
+            self._local = threading.local()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        if self._is_memory:
+            return self._shared_conn
+        # Per-thread connection for file DBs (WAL allows concurrent readers).
+        if not hasattr(self._local, "conn"):
+            conn = sqlite3.connect(self._db_path, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            self._local.conn = conn
+        return self._local.conn
+
+    def _execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
+        conn = self._get_conn()
+        write = sql.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE", "REPLACE"))
+        if write:
+            with self._lock:
+                cur = conn.execute(sql, params)
+                conn.commit()
+        else:
+            cur = conn.execute(sql, params)
+        return cur
 
     def init_db(self) -> None:
         """Creates the tables if they don't exist. Safe to call on every startup."""
-        self._conn.executescript("""
+        conn = self._get_conn()
+        with self._lock:
+            conn.executescript("""
             CREATE TABLE IF NOT EXISTS workflows (
                 id          TEXT PRIMARY KEY,
                 name        TEXT NOT NULL,
@@ -107,10 +138,14 @@ class Database:
                 error               TEXT
             );
         """)
-        self._conn.commit()
+        conn.commit()
 
     def close(self) -> None:
-        self._conn.close()
+        if self._is_memory:
+            self._shared_conn.close()
+        elif hasattr(self._local, "conn"):
+            self._local.conn.close()
+            del self._local.conn
 
     # ------------------------------------------------------------------
     # Workflows
@@ -119,21 +154,20 @@ class Database:
     def create_workflow(self, name: str, definition: dict) -> dict:
         wf_id = str(uuid.uuid4())
         now = _now_iso()
-        self._conn.execute(
+        self._execute(
             "INSERT INTO workflows (id, name, definition, created_at, updated_at) VALUES (?,?,?,?,?)",
             (wf_id, name, json.dumps(definition), now, now),
         )
-        self._conn.commit()
         return self.get_workflow(wf_id)
 
     def get_workflow(self, workflow_id: str) -> dict | None:
-        row = self._conn.execute(
+        row = self._execute(
             "SELECT * FROM workflows WHERE id = ?", (workflow_id,)
         ).fetchone()
         return _deserialise_workflow(row) if row else None
 
     def list_workflows(self) -> list[dict]:
-        rows = self._conn.execute(
+        rows = self._execute(
             "SELECT * FROM workflows ORDER BY created_at DESC"
         ).fetchall()
         return [_deserialise_workflow(r) for r in rows]
@@ -143,21 +177,20 @@ class Database:
             return None
         now = _now_iso()
         if name is not None and definition is not None:
-            self._conn.execute(
+            self._execute(
                 "UPDATE workflows SET name=?, definition=?, updated_at=? WHERE id=?",
                 (name, json.dumps(definition), now, workflow_id),
             )
         elif name is not None:
-            self._conn.execute(
+            self._execute(
                 "UPDATE workflows SET name=?, updated_at=? WHERE id=?",
                 (name, now, workflow_id),
             )
         elif definition is not None:
-            self._conn.execute(
+            self._execute(
                 "UPDATE workflows SET definition=?, updated_at=? WHERE id=?",
                 (json.dumps(definition), now, workflow_id),
             )
-        self._conn.commit()
         return self.get_workflow(workflow_id)
 
     def find_workflow_by_webhook_path(self, path: str) -> dict | None:
@@ -171,7 +204,7 @@ class Database:
         This is a linear scan — fine for dozens of workflows (typical product use).
         If the user has thousands of workflows, add a denormalised index column.
         """
-        rows = self._conn.execute("SELECT * FROM workflows").fetchall()
+        rows = self._execute("SELECT * FROM workflows").fetchall()
         for row in rows:
             wf = _deserialise_workflow(row)
             nodes = wf.get("definition", {}).get("nodes", [])
@@ -190,17 +223,18 @@ class Database:
     def create_run(self, workflow_id: str) -> dict:
         run_id = str(uuid.uuid4())
         now = _now_iso()
-        self._conn.execute(
-            """INSERT INTO runs
-               (id, workflow_id, status, node_outputs, global_state, created_at)
-               VALUES (?, ?, 'created', '{}', '{"messages":[],"variables":{}}', ?)""",
-            (run_id, workflow_id, now),
-        )
-        self._conn.commit()
+        self._execute(
+                """INSERT INTO runs
+                   (id, workflow_id, status, node_outputs, global_state, created_at)
+                   VALUES (?, ?, 'created', '{}', '{"messages":[],"variables":{}}', ?)""",
+                (run_id, workflow_id, now),
+            )
         return self.get_run(run_id)
 
     def get_run(self, run_id: str) -> dict | None:
-        row = self._conn.execute(
+        if isinstance(run_id, uuid.UUID):
+            run_id = str(run_id)
+        row = self._execute(
             "SELECT * FROM runs WHERE id = ?", (run_id,)
         ).fetchone()
         return _deserialise_run(row) if row else None
@@ -231,11 +265,10 @@ class Database:
             return self.get_run(run_id)
 
         values.append(run_id)
-        self._conn.execute(
-            f"UPDATE runs SET {', '.join(assignments)} WHERE id = ?",
-            values,
-        )
-        self._conn.commit()
+        self._execute(
+                f"UPDATE runs SET {', '.join(assignments)} WHERE id = ?",
+                tuple(values),
+            )
         return self.get_run(run_id)
 
 
