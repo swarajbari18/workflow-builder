@@ -12,7 +12,7 @@
  */
 import { useState, Fragment } from 'react';
 import { Handle, Position, useStore as useRFStore } from 'reactflow';
-import { NODE_CARD, CATEGORY_COLORS, EXECUTION_STATES, HANDLE, CONNECTION_MODE } from '../styles/design-tokens';
+import { NODE_CARD, CATEGORY_COLORS, CATEGORY_ICONS, EXECUTION_STATES, HANDLE, CONNECTION_MODE, SELECTION_RING } from '../styles/design-tokens';
 import { NodeHandle } from './node-handle';
 import { useStore } from '../store';
 import { isCompatibleTypes } from './nodeSpecs';
@@ -93,13 +93,20 @@ const handleRowStyle = {
 };
 
 const handleLabelStyle = {
-  color: 'rgba(255,255,255,0.40)',
+  color: 'rgba(255,255,255,0.62)',
   fontSize: 11,
   letterSpacing: '0.01em',
   fontFamily: 'Inter, sans-serif',
 };
 
-export const BaseNode = ({ id, data, spec, extraHandles, children }) => {
+const categoryIconStyle = (category) => ({
+  fontSize: 14,
+  lineHeight: 1,
+  color: CATEGORY_COLORS[category] ?? 'rgba(255,255,255,0.6)',
+  marginRight: 7,
+});
+
+export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) => {
   const [handlesRevealed, setHandlesRevealed] = useState(false);
   const executionState = data.executionState ?? 'idle';
   const stateConfig = EXECUTION_STATES[executionState] ?? EXECUTION_STATES.idle;
@@ -122,15 +129,17 @@ export const BaseNode = ({ id, data, spec, extraHandles, children }) => {
     );
   const isIncompatible = !!connectionMode && !isDragSource && !canReceive;
 
-  const connectionStyle = canReceive
+  const stateStyle = canReceive
     ? { boxShadow: CONNECTION_MODE.compatibleGlow }
     : isIncompatible
       ? { opacity: CONNECTION_MODE.incompatibleOpacity }
-      : null;
+      : selected
+        ? { boxShadow: SELECTION_RING }
+        : null;
 
   return (
     <div
-      style={{ ...cardStyle(spec.category), ...connectionStyle, transition: 'opacity 150ms ease, box-shadow 150ms ease' }}
+      style={{ ...cardStyle(spec.category), ...stateStyle, transition: 'opacity 150ms ease, box-shadow 150ms ease' }}
       data-execution-state={executionState}
       data-handles-revealed={String(handlesRevealed)}
       data-connection-target={canReceive ? 'compatible' : isIncompatible ? 'incompatible' : undefined}
@@ -138,7 +147,12 @@ export const BaseNode = ({ id, data, spec, extraHandles, children }) => {
       onMouseLeave={() => setHandlesRevealed(false)}
     >
       <div style={headerStyle}>
-        <span>{spec.title}</span>
+        <span style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={categoryIconStyle(spec.category)} aria-hidden="true">
+            {CATEGORY_ICONS[spec.category]}
+          </span>
+          <span>{spec.title}</span>
+        </span>
         <div
           data-status-dot
           data-status-color={stateConfig.color}

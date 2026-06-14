@@ -10,7 +10,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { ReactFlowProvider } from 'reactflow';
 import { BaseNode, isFieldVisible } from './baseNode';
 import { useStore } from '../store';
-import { CATEGORY_COLORS, EXECUTION_STATES, NODE_CARD } from '../styles/design-tokens';
+import { CATEGORY_COLORS, CATEGORY_ICONS, EXECUTION_STATES, NODE_CARD, SELECTION_RING } from '../styles/design-tokens';
 
 describe('isFieldVisible', () => {
   const fields = [
@@ -62,6 +62,20 @@ describe('BaseNode', () => {
   test('renders the node title', () => {
     renderNode(makeSpec());
     expect(screen.getByText('My Node')).toBeInTheDocument();
+  });
+
+  test('renders the category icon in the header', () => {
+    renderNode(makeSpec({ category: 'ai' }));
+    expect(screen.getByText(CATEGORY_ICONS.ai)).toBeInTheDocument();
+  });
+
+  test('applies a selection ring when selected', () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <BaseNode id="demo-1" data={{}} spec={makeSpec()} selected />
+      </ReactFlowProvider>,
+    );
+    expect(container.firstChild.style.boxShadow).toBe(SELECTION_RING);
   });
 
   test('renders no input, select, or textarea elements on the node face', () => {
