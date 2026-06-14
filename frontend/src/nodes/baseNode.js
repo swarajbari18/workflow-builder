@@ -66,7 +66,7 @@ export function isHandleHidden(handle, nodeId, edges) {
   return false;
 }
 
-const cardStyle = (category) => ({
+const cardStyle = (category, glow) => ({
   position: 'relative',
   width: NODE_CARD.width,
   minHeight: NODE_CARD.minHeight,
@@ -75,7 +75,12 @@ const cardStyle = (category) => ({
   borderTop: `1px solid ${NODE_CARD.borderTop}`,
   borderLeft: `4px solid ${CATEGORY_COLORS[category] ?? NODE_CARD.borderLeft}`,
   borderRadius: NODE_CARD.borderRadius,
-  boxShadow: [NODE_CARD.shadowOuter, NODE_CARD.shadowRing, NODE_CARD.shadowInner]
+  boxShadow: [
+    glow,
+    NODE_CARD.shadowOuter,
+    NODE_CARD.shadowRing,
+    NODE_CARD.shadowInner,
+  ]
     .filter(Boolean)
     .join(', '),
   fontFamily: 'Inter, sans-serif',
@@ -221,18 +226,30 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
     );
   const isIncompatible = !!connectionMode && !isDragSource && !canReceive;
 
+  const isSkipped = executionState === 'stale' || executionState === 'skipped';
+  const executionGlow = stateConfig.glow;
+
   const stateStyle = canReceive
     ? { boxShadow: CONNECTION_MODE.compatibleGlow }
     : isIncompatible
       ? { opacity: CONNECTION_MODE.incompatibleOpacity }
       : selected
         ? { boxShadow: SELECTION_RING }
-        : null;
+        : executionGlow
+          ? { boxShadow: executionGlow }
+          : null;
+
+  const skippedOpacity = executionState === 'skipped' ? { opacity: 0.35 } : null;
 
   return (
     <div
       className={roleClass}
-      style={{ ...cardStyle(spec.category), ...stateStyle, transition: 'opacity 150ms ease, box-shadow 150ms ease' }}
+      style={{
+        ...cardStyle(spec.category, !canReceive && !isIncompatible && !selected ? executionGlow : null),
+        ...stateStyle,
+        ...skippedOpacity,
+        transition: 'opacity 150ms ease, box-shadow 200ms ease',
+      }}
       data-execution-state={executionState}
       data-handles-revealed={String(handlesRevealed)}
       data-connection-target={canReceive ? 'compatible' : isIncompatible ? 'incompatible' : undefined}
@@ -315,6 +332,18 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
               }}
             >
               cycle
+            </span>
+          )}
+          {executionState === 'stale' && (
+            <span
+              data-stale-badge
+              style={{
+                fontSize: 10, lineHeight: 1, color: '#FFD60A',
+                marginRight: 3, opacity: 0.85,
+              }}
+              title="Config changed — needs re-run"
+            >
+              ↻
             </span>
           )}
           <div
