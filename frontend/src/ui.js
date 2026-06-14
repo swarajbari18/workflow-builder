@@ -13,9 +13,11 @@ import { useStore } from './store';
 import { nodeTypes } from './nodes/nodeRegistry';
 import { NODE_SPECS, isConnectionValid } from './nodes/nodeSpecs';
 import { TypedEdge } from './edges/typed-edge';
+import { ConnectionLine } from './edges/connection-line';
 import { Dock } from './canvas/dock';
 import { CommandPalette } from './canvas/command-palette';
 import { ContextMenu } from './canvas/context-menu';
+import { Inspector } from './canvas/inspector';
 import { GhostWorkflow } from './canvas/ghost-workflow';
 import { CANVAS } from './styles/design-tokens';
 import 'reactflow/dist/style.css';
@@ -38,7 +40,8 @@ const selector = (state) => ({
   openPalette:      state.openPalette,
   openContextMenu:  state.openContextMenu,
   closeContextMenu: state.closeContextMenu,
-  connectionMode:   state.connectionMode,
+  openInspector:    state.openInspector,
+  closeInspector:   state.closeInspector,
 });
 
 const buildInitialData = (nodeId, type) => {
@@ -59,7 +62,7 @@ export const PipelineUI = () => {
     startConnection, endConnection,
     openPalette,
     openContextMenu, closeContextMenu,
-    connectionMode,
+    openInspector, closeInspector,
   } = useStore(selector, shallow);
 
   // Ctrl/Cmd+K → open command palette
@@ -161,19 +164,23 @@ export const PipelineUI = () => {
     [openContextMenu, closeContextMenu],
   );
 
-  // Click on pane dismisses context menu
+  // Selecting a node opens the inspector for it
+  const onNodeClick = useCallback(
+    (_, node) => openInspector(node.id),
+    [openInspector],
+  );
+
+  // Click on empty canvas dismisses the context menu and the inspector
   const onPaneClick = useCallback(() => {
     closeContextMenu();
-  }, [closeContextMenu]);
+    closeInspector();
+  }, [closeContextMenu, closeInspector]);
 
   const wrapperStyle = {
     position: 'relative',
     width: '100vw',
     height: '100vh',
     background: CANVAS.background,
-    // Dim the canvas when connection mode is active
-    filter: connectionMode ? 'brightness(0.55)' : undefined,
-    transition: 'filter 200ms ease',
   };
 
   return (
@@ -192,13 +199,14 @@ export const PipelineUI = () => {
         onDrop={onDrop}
         onDragOver={onDragOver}
         onInit={setRFInstance}
+        onNodeClick={onNodeClick}
         onNodeContextMenu={onNodeContextMenu}
         onEdgeContextMenu={onEdgeContextMenu}
         onPaneContextMenu={onPaneContextMenu}
         onPaneClick={onPaneClick}
         proOptions={proOptions}
         snapGrid={[CANVAS.gridInterval, CANVAS.gridInterval]}
-        connectionLineType="bezier"
+        connectionLineComponent={ConnectionLine}
         style={{ width: '100%', height: '100%' }}
       >
         <Background
@@ -220,6 +228,7 @@ export const PipelineUI = () => {
       <Dock />
       <CommandPalette />
       <ContextMenu />
+      <Inspector />
     </div>
   );
 };

@@ -4,18 +4,29 @@
  * (`toolbarItems`) update automatically from the same source.
  */
 import { BaseNode } from './baseNode';
+import { OutputNode } from './output-node';
+import { TextNode } from './text-node';
 import { NODE_SPECS } from './nodeSpecs';
 
+// A few node types need more than the generic card (an inline body or dynamic
+// handles). They render through their own component, still spec-driven via BaseNode.
+const CUSTOM_RENDERERS = {
+  customOutput: OutputNode,
+  text: TextNode,
+};
+
 /**
- * React Flow `nodeTypes`: every type renders through `BaseNode` pre-bound to its
- * spec. Built once at module load so the map keeps a stable identity across
- * renders — React Flow remounts every node if `nodeTypes` changes between renders.
+ * React Flow `nodeTypes`: each type renders through its custom component when one is
+ * registered, otherwise the generic `BaseNode`, pre-bound to its spec. Built once at
+ * module load so the map keeps a stable identity across renders — React Flow remounts
+ * every node if `nodeTypes` changes between renders.
  *
  * @type {Object<string, React.ComponentType>}
  */
 export const nodeTypes = Object.fromEntries(
   Object.entries(NODE_SPECS).map(([type, spec]) => {
-    const SpecNode = (props) => <BaseNode {...props} spec={spec} />;
+    const Renderer = CUSTOM_RENDERERS[type] ?? BaseNode;
+    const SpecNode = (props) => <Renderer {...props} spec={spec} />;
     SpecNode.displayName = `Node(${type})`;
     return [type, SpecNode];
   }),

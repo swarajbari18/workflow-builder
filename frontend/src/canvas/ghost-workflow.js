@@ -16,9 +16,9 @@ import { NODE_SPECS } from '../nodes/nodeSpecs';
 import { CATEGORY_COLORS, NODE_CARD } from '../styles/design-tokens';
 
 const GHOST_NODES = [
-  { type: 'textInput', label: 'Your prompt goes here', hint: 'Start here', x: 80,  y: 180 },
-  { type: 'llm',       label: 'OpenAI / GPT-4o',       hint: 'Your AI runs here', x: 360, y: 120 },
-  { type: 'output',    label: 'See the result',         hint: 'End here', x: 640, y: 180 },
+  { type: 'customInput',  label: 'Your prompt goes here', hint: 'Start here', x: 80,  y: 180 },
+  { type: 'llm',          label: 'Your AI runs here',     hint: 'Pick a model', x: 360, y: 120 },
+  { type: 'customOutput', label: 'See the result',        hint: 'End here', x: 640, y: 180 },
 ];
 
 const GHOST_EDGES = [
@@ -106,9 +106,9 @@ function GhostNode({ ghostDef, onPromote }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={() => onPromote(ghostDef)}
-      title={`Click to add ${spec?.label ?? ghostDef.type} to your canvas`}
+      title={`Click to add ${spec?.title ?? ghostDef.type} to your canvas`}
     >
-      <div style={ghostLabelStyle}>{spec?.label ?? ghostDef.type}</div>
+      <div style={ghostLabelStyle}>{ghostDef.label}</div>
       <div style={ghostHintStyle}>{ghostDef.hint}</div>
     </div>
   );

@@ -9,7 +9,8 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ReactFlowProvider } from 'reactflow';
 import { BaseNode, isFieldVisible } from './baseNode';
-import { CATEGORY_COLORS, EXECUTION_STATES, NODE_CARD } from '../styles/design-tokens';
+import { useStore } from '../store';
+import { CATEGORY_COLORS, CATEGORY_ICONS, EXECUTION_STATES, NODE_CARD, SELECTION_RING } from '../styles/design-tokens';
 
 describe('isFieldVisible', () => {
   const fields = [
@@ -63,6 +64,20 @@ describe('BaseNode', () => {
     expect(screen.getByText('My Node')).toBeInTheDocument();
   });
 
+  test('renders the category icon in the header', () => {
+    renderNode(makeSpec({ category: 'ai' }));
+    expect(screen.getByText(CATEGORY_ICONS.ai)).toBeInTheDocument();
+  });
+
+  test('applies a selection ring when selected', () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <BaseNode id="demo-1" data={{}} spec={makeSpec()} selected />
+      </ReactFlowProvider>,
+    );
+    expect(container.firstChild.style.boxShadow).toBe(SELECTION_RING);
+  });
+
   test('renders no input, select, or textarea elements on the node face', () => {
     renderNode(makeSpec());
     expect(document.querySelector('input')).toBeNull();
@@ -113,6 +128,31 @@ describe('BaseNode', () => {
     const { container } = renderNode(makeSpec(), { executionState: 'running' });
     const dot = container.querySelector('[data-status-dot]');
     expect(dot.dataset.statusColor).toBe(EXECUTION_STATES.running.color);
+  });
+
+  describe('connection mode highlighting', () => {
+    const targetSpec = makeSpec({
+      handles: [{ id: 'in', kind: 'target', side: 'left', dataType: 'string' }],
+    });
+    afterEach(() => useStore.setState({ connectionMode: null }));
+
+    test('marks a node with a compatible target handle as compatible', () => {
+      useStore.setState({ connectionMode: { sourceNodeId: 'other', sourceDataType: 'string' } });
+      const { container } = renderNode(targetSpec);
+      expect(container.firstChild.dataset.connectionTarget).toBe('compatible');
+    });
+
+    test('marks a node with no compatible target handle as incompatible', () => {
+      useStore.setState({ connectionMode: { sourceNodeId: 'other', sourceDataType: 'number' } });
+      const { container } = renderNode(targetSpec);
+      expect(container.firstChild.dataset.connectionTarget).toBe('incompatible');
+    });
+
+    test('does not dim the node the drag started from', () => {
+      useStore.setState({ connectionMode: { sourceNodeId: 'demo-1', sourceDataType: 'number' } });
+      const { container } = renderNode(targetSpec);
+      expect(container.firstChild.dataset.connectionTarget).toBeUndefined();
+    });
   });
 
   test('handles reveal on mouse enter and hide on mouse leave', () => {

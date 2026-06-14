@@ -10,10 +10,12 @@
  * Handle proximity reveal: onMouseEnter/Leave on the card drives `handlesRevealed`
  * state, which is forwarded to each NodeHandle as an opacity signal.
  */
-import { useState, Fragment } from 'react';
-import { Handle, Position, useStore as useRFStore } from 'reactflow';
-import { NODE_CARD, CATEGORY_COLORS, EXECUTION_STATES, HANDLE } from '../styles/design-tokens';
+import { useState, useEffect, Fragment } from 'react';
+import { Handle, Position, useStore as useRFStore, useUpdateNodeInternals } from 'reactflow';
+import { NODE_CARD, CATEGORY_COLORS, CATEGORY_ICONS, EXECUTION_STATES, HANDLE, CONNECTION_MODE, SELECTION_RING } from '../styles/design-tokens';
 import { NodeHandle } from './node-handle';
+import { useStore } from '../store';
+import { isCompatibleTypes } from './nodeSpecs';
 
 /**
  * Whether a field should be shown given the current values. A field with a
@@ -72,43 +74,130 @@ const statusDotStyle = (color) => ({
 
 /**
  * Renders a node from its spec. `id` and `data` are injected by React Flow;
- * `spec` is bound per type in `nodeRegistry.js`.
+ * `spec` is bound per type in `nodeRegistry.js`. Node types that need more than the
+ * generic card pass `extraHandles` (e.g. Text's dynamic `{{variable}}` handles) and/or
+ * `children` (an inline body, e.g. the Output node's result display).
  *
- * @param {{ id: string, data: Object, spec: import('./nodeSpecs').NodeSpec }} props
+ * @param {{
+ *   id: string,
+ *   data: Object,
+ *   spec: import('./nodeSpecs').NodeSpec,
+ *   extraHandles?: import('./nodeSpecs').Handle[],
+ *   children?: React.ReactNode,
+ * }} props
  */
 const handleRowStyle = {
+  position: 'relative',
   display: 'flex',
+  alignItems: 'center',
   justifyContent: 'space-between',
-  padding: '2px 12px',
+  minHeight: 24,
+  padding: '3px 14px',
 };
 
 const handleLabelStyle = {
-  color: 'rgba(255,255,255,0.40)',
+  color: 'rgba(255,255,255,0.62)',
   fontSize: 11,
   letterSpacing: '0.01em',
   fontFamily: 'Inter, sans-serif',
 };
 
-export const BaseNode = ({ id, data, spec }) => {
+const categoryIconStyle = (category) => ({
+  fontSize: 14,
+  lineHeight: 1,
+  color: CATEGORY_COLORS[category] ?? 'rgba(255,255,255,0.6)',
+  marginRight: 7,
+});
+
+export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) => {
   const [handlesRevealed, setHandlesRevealed] = useState(false);
   const executionState = data.executionState ?? 'idle';
   const stateConfig = EXECUTION_STATES[executionState] ?? EXECUTION_STATES.idle;
   const edges = useRFStore((state) => state.edges);
 
-  const leftHandles = spec.handles.filter((h) => h.side === 'left');
-  const rightHandles = spec.handles.filter((h) => h.side === 'right');
+  const handles = extraHandles ? [...spec.handles, ...extraHandles] : spec.handles;
+  const leftHandles = handles.filter((h) => h.side === 'left');
+  const rightHandles = handles.filter((h) => h.side === 'right');
   const rowCount = Math.max(leftHandles.length, rightHandles.length, 1);
+
+  // Each handle (connection point, visual, and label) lives in one row so they stay
+  // aligned; when the handle set changes (e.g. Text gains a {{variable}}) React Flow must
+  // re-measure their positions or edge endpoints drift.
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, handles.length, updateNodeInternals]);
+
+  const renderHandle = (handle) => {
+    if (!handle) return null;
+    const fullHandleId = `${id}-${handle.id}`;
+    const connected = edges.some(
+      (e) => e.sourceHandle === fullHandleId || e.targetHandle === fullHandleId,
+    );
+    const edgePosition =
+      handle.side === 'left'
+        ? { left: 0, transform: 'translate(-50%, -50%)' }
+        : { right: 0, transform: 'translate(50%, -50%)' };
+    return (
+      <Fragment>
+        <Handle
+          id={fullHandleId}
+          type={handle.kind}
+          position={handle.side === 'left' ? Position.Left : Position.Right}
+          style={{
+            width: HANDLE.hitSize,
+            height: HANDLE.hitSize,
+            background: 'transparent',
+            border: 'none',
+            top: '50%',
+            ...edgePosition,
+          }}
+        />
+        <NodeHandle
+          handle={{ ...handle, offset: undefined }}
+          revealed={handlesRevealed}
+          connected={connected}
+        />
+      </Fragment>
+    );
+  };
+
+  // While a wire is being dragged, light up nodes that can receive it and dim the rest,
+  // so the user can see where a connection is allowed without trial and error.
+  const connectionMode = useStore((s) => s.connectionMode);
+  const isDragSource = connectionMode?.sourceNodeId === id;
+  const canReceive =
+    !!connectionMode &&
+    !isDragSource &&
+    handles.some(
+      (h) => h.kind === 'target' && isCompatibleTypes(connectionMode.sourceDataType, h.dataType),
+    );
+  const isIncompatible = !!connectionMode && !isDragSource && !canReceive;
+
+  const stateStyle = canReceive
+    ? { boxShadow: CONNECTION_MODE.compatibleGlow }
+    : isIncompatible
+      ? { opacity: CONNECTION_MODE.incompatibleOpacity }
+      : selected
+        ? { boxShadow: SELECTION_RING }
+        : null;
 
   return (
     <div
-      style={cardStyle(spec.category)}
+      style={{ ...cardStyle(spec.category), ...stateStyle, transition: 'opacity 150ms ease, box-shadow 150ms ease' }}
       data-execution-state={executionState}
       data-handles-revealed={String(handlesRevealed)}
+      data-connection-target={canReceive ? 'compatible' : isIncompatible ? 'incompatible' : undefined}
       onMouseEnter={() => setHandlesRevealed(true)}
       onMouseLeave={() => setHandlesRevealed(false)}
     >
       <div style={headerStyle}>
-        <span>{spec.title}</span>
+        <span style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={categoryIconStyle(spec.category)} aria-hidden="true">
+            {CATEGORY_ICONS[spec.category]}
+          </span>
+          <span>{spec.title}</span>
+        </span>
         <div
           data-status-dot
           data-status-color={stateConfig.color}
@@ -116,8 +205,9 @@ export const BaseNode = ({ id, data, spec }) => {
         />
       </div>
 
-      {/* Handle label rows — each row pairs one left handle with one right handle */}
-      <div style={{ padding: '4px 0 8px 0' }}>
+      {/* One row per handle pair — connection point, visual, and label share a row so
+          a label always sits beside its own handle. */}
+      <div style={{ padding: '2px 0 8px 0' }}>
         {Array.from({ length: rowCount }, (_, i) => {
           const left = leftHandles[i];
           const right = rightHandles[i];
@@ -127,38 +217,14 @@ export const BaseNode = ({ id, data, spec }) => {
             <div key={i} style={handleRowStyle}>
               <span style={handleLabelStyle}>{leftLabel ? `◁ ${leftLabel}` : ''}</span>
               <span style={handleLabelStyle}>{rightLabel ? `${rightLabel} ▷` : ''}</span>
+              {renderHandle(left)}
+              {renderHandle(right)}
             </div>
           );
         })}
       </div>
 
-      {spec.handles.map((handle) => {
-        const fullHandleId = `${id}-${handle.id}`;
-        const connected = edges.some(
-          (e) => e.sourceHandle === fullHandleId || e.targetHandle === fullHandleId,
-        );
-        return (
-          <Fragment key={handle.id}>
-            <Handle
-              id={fullHandleId}
-              type={handle.kind}
-              position={handle.side === 'left' ? Position.Left : Position.Right}
-              style={{
-                width: HANDLE.hitSize,
-                height: HANDLE.hitSize,
-                background: 'transparent',
-                border: 'none',
-                ...(handle.offset ? { top: handle.offset } : {}),
-              }}
-            />
-            <NodeHandle
-              handle={handle}
-              revealed={handlesRevealed}
-              connected={connected}
-            />
-          </Fragment>
-        );
-      })}
+      {children}
     </div>
   );
 };

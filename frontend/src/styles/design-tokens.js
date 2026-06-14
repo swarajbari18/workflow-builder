@@ -49,6 +49,20 @@ export const CATEGORY_COLORS = {
   output:      '#8E8E93',
 };
 
+// Monochrome category glyphs — rendered in the category colour on node headers and
+// in the dock, so a node's category reads at a glance without relying on colour alone.
+export const CATEGORY_ICONS = {
+  triggers:    '⚡',
+  ai:          '✦',
+  data:        '▤',
+  control:     '⋔',
+  integration: '⇄',
+  output:      '▣',
+};
+
+// Selection ring applied to the node card when it is selected (inspector open).
+export const SELECTION_RING = '0 0 0 2px rgba(255,255,255,0.85), 0 4px 20px rgba(0,0,0,0.5)';
+
 /**
  * Ghost glass material for node cards.
  * No backdrop-filter — see DESIGN-VISION.md for the performance rationale.

@@ -18,8 +18,15 @@
  * `data-wire-color` on the <path> exposes the color for tests without relying
  * on computed SVG fill/stroke values.
  */
-import { getBezierPath } from 'reactflow';
+import { getBezierPath, EdgeLabelRenderer } from 'reactflow';
 import { DATA_TYPE_COLORS, WIRE } from '../styles/design-tokens';
+
+// What the type badge says — friendlier than the raw type id where it helps.
+const TYPE_LABELS = {
+  'message[]': 'messages',
+  'fn-schema': 'tool',
+  dynamic: 'auto',
+};
 
 const RAINBOW_COLORS = [
   { offset: '0%',   color: '#FF2D78' },
@@ -51,8 +58,10 @@ export function TypedEdge({
   const color = isRainbow ? null : (rawColor ?? DATA_TYPE_COLORS.any);
 
   const gradientId = `wire-rainbow-${id}`;
+  const badgeColor = isRainbow ? '#FFFFFF' : color;
+  const badgeLabel = TYPE_LABELS[dataType] ?? dataType;
 
-  const [edgePath] = getBezierPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     targetX,
@@ -82,6 +91,28 @@ export function TypedEdge({
         fill="none"
         data-wire-color={isRainbow ? 'rainbow' : color}
       />
+      <EdgeLabelRenderer>
+        <div
+          data-edge-badge={badgeLabel}
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            pointerEvents: 'none',
+            padding: '1px 7px',
+            borderRadius: 999,
+            fontSize: 10,
+            fontWeight: 600,
+            fontFamily: 'Inter, sans-serif',
+            letterSpacing: '0.02em',
+            color: badgeColor,
+            background: 'rgba(13,13,15,0.85)',
+            border: `1px solid ${badgeColor}55`,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {badgeLabel}
+        </div>
+      </EdgeLabelRenderer>
     </g>
   );
 }

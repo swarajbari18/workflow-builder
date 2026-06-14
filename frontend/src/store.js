@@ -115,4 +115,9 @@ export const useStore = create((set, get) => ({
     openContextMenu: (type, x, y, target) =>
       set({ contextMenu: { type, x, y, target } }),
     closeContextMenu: () => set({ contextMenu: null }),
+
+    // Inspector — the floating config panel; holds the id of the node being edited.
+    inspectorNodeId: null,
+    openInspector: (nodeId) => set({ inspectorNodeId: nodeId }),
+    closeInspector: () => set({ inspectorNodeId: null }),
   }));
