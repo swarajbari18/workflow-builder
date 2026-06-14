@@ -91,6 +91,8 @@ const storeSelector = (s) => ({
   nodeCount:       s.nodes.length,
   dagStatus:       s.dagStatus,
   submitPipeline:  s.submitPipeline,
+  runPipeline:     s.runPipeline,
+  runStatus:       s.runStatus,
 });
 
 const glassStyle = {
@@ -291,8 +293,14 @@ function DagStatusButton({ dagStatus, onSubmit }) {
 export function Dock() {
   const {
     addNode, getNodeID, rfInstance, openPalette,
-    nodeCount, dagStatus, submitPipeline,
+    nodeCount, dagStatus, submitPipeline, runPipeline, runStatus,
   } = useStore(storeSelector, shallow);
+
+  const isRunning   = runStatus === 'running';
+  const runComplete = runStatus === 'completed';
+  const runError    = runStatus === 'error';
+  const runBtnColor = runError ? '#FF3B30' : runComplete ? '#34C759' : 'rgba(255,255,255,0.82)';
+  const runBtnTitle = isRunning ? 'Running…' : runError ? 'Run failed' : runComplete ? 'Run complete ✓' : 'Run pipeline';
 
   const [activeCategory, setActiveCategory] = useState(null);
   const [dockVisible, setDockVisible] = useState(false);
@@ -385,8 +393,14 @@ export function Dock() {
 
           <div style={separatorStyle} />
 
-          <button data-testid="dock-run-btn" style={iconBtnStyle} title="Run pipeline">
-            ▶
+          <button
+            data-testid="dock-run-btn"
+            style={{ ...iconBtnStyle, color: runBtnColor, transition: 'color 200ms ease' }}
+            title={runBtnTitle}
+            disabled={isRunning}
+            onClick={() => runPipeline()}
+          >
+            {isRunning ? '◌' : runComplete ? '✓' : runError ? '✕' : '▶'}
           </button>
 
           <DagStatusButton dagStatus={dagStatus} onSubmit={submitPipeline} />

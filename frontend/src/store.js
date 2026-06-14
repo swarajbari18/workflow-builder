@@ -123,6 +123,140 @@ export const useStore = create((set, get) => ({
       });
     },
 
+    // ------------------------------------------------------------------
+    // Pipeline execution — the live run system
+    // ------------------------------------------------------------------
+
+    // null = no run active; string = run_id of the active run
+    activeRunId: null,
+    // 'idle' | 'running' | 'completed' | 'error'
+    runStatus: 'idle',
+
+    /**
+     * Executes the current pipeline and subscribes to the SSE stream,
+     * updating node executionState dots in real time as events arrive.
+     *
+     * @param {object} [triggerPayload={}]  For Webhook nodes — the mock payload
+     *                                      the user typed in the Test panel.
+     */
+    runPipeline: async (triggerPayload = {}) => {
+      const { nodes, edges, updateNodeData } = get();
+
+      // Reset all nodes to idle before starting
+      set({
+        nodes: nodes.map((n) => ({
+          ...n,
+          data: { ...n.data, executionState: 'idle' },
+        })),
+        runStatus: 'running',
+        activeRunId: null,
+      });
+
+      try {
+        const r = await fetch(`${BACKEND_URL}/pipelines/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nodes,
+            edges,
+            trigger_payload: triggerPayload,
+            is_development: true,
+          }),
+        });
+
+        if (!r.ok) {
+          set({ runStatus: 'error' });
+          return;
+        }
+
+        const { run_id, stream_url } = await r.json();
+        set({ activeRunId: run_id });
+
+        // Open the SSE stream — browser-native EventSource, no library needed
+        const evtSource = new EventSource(`${BACKEND_URL}${stream_url}`);
+
+        evtSource.onmessage = (e) => {
+          let event;
+          try { event = JSON.parse(e.data); } catch { return; }
+
+          switch (event.type) {
+            case 'node_started':
+              updateNodeData(event.nodeId, { executionState: 'running' });
+              break;
+
+            case 'node_completed':
+              // Briefly flash 'completed' (green dot) then settle — the glow is
+              // defined in EXECUTION_STATES.completed so no extra CSS needed.
+              updateNodeData(event.nodeId, { executionState: 'completed' });
+              break;
+
+            case 'node_skipped':
+              updateNodeData(event.nodeId, { executionState: 'skipped' });
+              break;
+
+            case 'node_error':
+              updateNodeData(event.nodeId, { executionState: 'error' });
+              break;
+
+            case 'node_output': {
+              // For Webhook nodes: inject the emitted output as receivedPayload
+              // so the "Got your data!" picker shows real values from the test run.
+              const node = get().nodes.find((n) => n.id === event.nodeId);
+              if (node?.type === 'webhook' && event.output && typeof event.output === 'object') {
+                // output is the full dict — keep only the payload blob for the preview
+                const preview = event.output.payload ?? event.output;
+                updateNodeData(event.nodeId, {
+                  receivedPayload: JSON.stringify(preview),
+                });
+              }
+              break;
+            }
+
+            case 'execution_suspended':
+              updateNodeData(event.nodeId, { executionState: 'suspended' });
+              evtSource.close();
+              set({ runStatus: 'idle', activeRunId: null });
+              break;
+
+            case 'pipeline_completed':
+              set({ runStatus: 'completed' });
+              evtSource.close();
+              // Auto-reset to idle after 4 s so the canvas doesn't stay green forever
+              setTimeout(() => {
+                set({
+                  runStatus: 'idle',
+                  activeRunId: null,
+                  nodes: get().nodes.map((n) => ({
+                    ...n,
+                    data: { ...n.data, executionState: 'idle' },
+                  })),
+                });
+              }, 4000);
+              break;
+
+            case 'execution_error':
+              set({ runStatus: 'error' });
+              evtSource.close();
+              setTimeout(() => {
+                set({ runStatus: 'idle', activeRunId: null });
+              }, 4000);
+              break;
+
+            default:
+              break;
+          }
+        };
+
+        evtSource.onerror = () => {
+          evtSource.close();
+          set({ runStatus: 'error', activeRunId: null });
+        };
+
+      } catch {
+        set({ runStatus: 'error', activeRunId: null });
+      }
+    },
+
     deleteNode: (nodeId) => {
       if (get().dagStatus !== 'pristine') _clearHighlight(set);
       set({
