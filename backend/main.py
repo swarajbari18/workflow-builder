@@ -17,6 +17,8 @@ Phase 6 additions
 -----------------
   POST /pipelines/run             — execute a pipeline; returns run_id + stream URL
   GET  /runs/{run_id}/stream      — SSE stream of execution events for a live run
+  POST /webhook/{path}            — external webhook receiver; triggers matching saved workflow
+  PUT  /workflows/{id}/save       — save current canvas state to an existing workflow
 
 Architecture
 ------------
@@ -35,7 +37,7 @@ endpoints are async — this is the exact split planned in Phase 5 decisions.md.
 import asyncio
 import json
 import os
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -179,6 +181,20 @@ def get_workflow(workflow_id: str, db: Database = Depends(get_db)):
 
 @app.put("/workflows/{workflow_id}")
 def update_workflow(workflow_id: str, req: WorkflowUpdate, db: Database = Depends(get_db)):
+    updated = db.update_workflow(workflow_id, name=req.name, definition=req.definition)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return updated
+
+
+@app.put("/workflows/{workflow_id}/save")
+def save_workflow(workflow_id: str, req: WorkflowUpdate, db: Database = Depends(get_db)):
+    """
+    Convenience alias for PUT /workflows/{id}.
+    Called by the frontend "Save" button with the current canvas state.
+    Saves definition (nodes + edges) so the webhook receiver can find this workflow
+    by its webhook node's path field.
+    """
     updated = db.update_workflow(workflow_id, name=req.name, definition=req.definition)
     if not updated:
         raise HTTPException(status_code=404, detail="Workflow not found")
@@ -344,3 +360,84 @@ async def stream_run(run_id: str, db: Database = Depends(get_db)):
             _RUN_QUEUES.pop(run_id, None)
 
     return EventSourceResponse(event_generator())
+
+
+# ---------------------------------------------------------------------------
+# Webhook receiver — the door external systems knock on
+# ---------------------------------------------------------------------------
+
+@app.post("/webhook/{path:path}", status_code=202)
+async def receive_webhook(path: str, request: Request, db: Database = Depends(get_db)):
+    """
+    External webhook receiver.
+
+    An external system (Shopify, GitHub, your own app) sends a POST to:
+        POST https://your-server/webhook/my-order-path
+
+    This endpoint:
+      1. Looks up the saved workflow whose webhook node has data.path = /my-order-path
+      2. Reads the request body as JSON (the trigger payload)
+      3. Creates a run, starts the engine, returns {run_id, stream_url}
+
+    The path is whatever the user typed in the Webhook node's "Path" field.
+    Example: if they typed '/webhook/new-order', they give this URL to Shopify:
+        https://your-server/webhook/new-order
+
+    Curl equivalent for local testing:
+        curl -X POST http://localhost:8000/webhook/new-order \\
+             -H 'Content-Type: application/json' \\
+             -d '{"customer": "Alice", "total": 99.90}'
+    """
+    # Normalise: ensure leading slash for matching
+    normalised_path = f"/{path}" if not path.startswith("/") else path
+
+    # Find the saved workflow with this webhook path
+    wf = db.find_workflow_by_webhook_path(normalised_path)
+    if not wf:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No saved workflow found with a Webhook node configured for path '{normalised_path}'. "
+                f"Save your workflow first via PUT /workflows/{{id}} with the current nodes and edges."
+            ),
+        )
+
+    # Parse the incoming payload — accept JSON, fall back to empty dict
+    try:
+        trigger_payload = await request.json()
+    except Exception:
+        trigger_payload = {}
+
+    # Resolve graph from the saved definition
+    definition = wf.get("definition", {})
+    nodes = definition.get("nodes", [])
+    edges = definition.get("edges", [])
+
+    # Create the run record linked to the saved workflow
+    run = db.create_run(wf["id"])
+    run_id = run["id"]
+
+    # Register SSE queue and start engine
+    queue: asyncio.Queue = asyncio.Queue()
+    _RUN_QUEUES[run_id] = queue
+
+    asyncio.create_task(
+        execute_pipeline(
+            run=run,
+            graph={"nodes": nodes, "edges": edges},
+            db=db,
+            sse_queue=queue,
+            trigger_payload=trigger_payload,
+            reuse_outputs={},
+            is_development=False,  # Real external trigger — not dev mode
+        ),
+        name=f"engine-{run_id}",
+    )
+
+    return {
+        "run_id": run_id,
+        "stream_url": f"/runs/{run_id}/stream",
+        "workflow_id": wf["id"],
+        "workflow_name": wf["name"],
+        "status": "started",
+    }

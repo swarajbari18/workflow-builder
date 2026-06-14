@@ -11,6 +11,10 @@
  * so it never permanently eats canvas space — the explicit anti-sidebar stance in
  * DESIGN-VISION. Advanced fields are tucked behind a disclosure; showIf is honoured
  * via the shared isFieldVisible helper.
+ *
+ * Webhook nodes get two extra custom sections injected by WebhookUrlSection and
+ * WebhookFieldsSection (webhook-node.js). Those sections sit outside the standard
+ * FieldControl loop so they can own their own state and store interactions cleanly.
  */
 import { useState } from 'react';
 import { shallow } from 'zustand/shallow';
@@ -18,6 +22,7 @@ import { useStore } from '../store';
 import { NODE_SPECS } from '../nodes/nodeSpecs';
 import { isFieldVisible } from '../nodes/baseNode';
 import { FieldControl } from './field-control';
+import { WebhookUrlSection, WebhookFieldsSection } from '../nodes/webhook-node';
 import { LIQUID_GLASS, CATEGORY_COLORS } from '../styles/design-tokens';
 
 const selector = (s) => ({
@@ -98,11 +103,20 @@ export function Inspector() {
   const spec = NODE_SPECS[node.type];
   if (!spec) return null;
 
+  const isWebhook = node.type === 'webhook';
   const accent = CATEGORY_COLORS[spec.category] ?? 'rgba(255,255,255,0.15)';
   const valueOf = (field) => node.data[field.name] ?? field.default;
-  const visible = spec.fields.filter((field) => isFieldVisible(field, node.data, spec.fields));
-  const basic = visible.filter((field) => !field.advanced);
+
+  // Skip internal fields — they are managed by custom node panel components, not FieldControl.
+  const visible = spec.fields.filter(
+    (field) => !field.internal && isFieldVisible(field, node.data, spec.fields),
+  );
+  const basic    = visible.filter((field) => !field.advanced);
   const advanced = visible.filter((field) => field.advanced);
+
+  // Show the Advanced disclosure if there are standard advanced fields or a custom
+  // advanced section (currently: webhook fields management panel).
+  const hasAdvanced = advanced.length > 0 || isWebhook;
 
   const renderField = (field) => (
     <FieldControl
@@ -121,10 +135,15 @@ export function Inspector() {
           ×
         </button>
       </div>
+
       <div style={bodyStyle}>
+        {/* Webhook: URL copy row always visible at the top */}
+        {isWebhook && <WebhookUrlSection data={node.data} />}
+
+        {/* Standard basic fields (path, method for webhook; all non-advanced for others) */}
         {basic.map(renderField)}
 
-        {advanced.length > 0 && (
+        {hasAdvanced && (
           <>
             <button
               style={disclosureStyle}
@@ -132,7 +151,18 @@ export function Inspector() {
             >
               {showAdvanced ? '▾' : '▸'} Advanced
             </button>
-            {showAdvanced && advanced.map(renderField)}
+
+            {showAdvanced && (
+              <>
+                {/* Standard advanced fields: testMode checkbox, samplePayload, secret */}
+                {advanced.map(renderField)}
+
+                {/* Webhook: field management panel (Got your data!, Add field manually) */}
+                {isWebhook && (
+                  <WebhookFieldsSection id={node.id} data={node.data} />
+                )}
+              </>
+            )}
           </>
         )}
       </div>

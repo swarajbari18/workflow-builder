@@ -136,11 +136,19 @@ export const useStore = create((set, get) => ({
      * Executes the current pipeline and subscribes to the SSE stream,
      * updating node executionState dots in real time as events arrive.
      *
-     * @param {object} [triggerPayload={}]  For Webhook nodes — the mock payload
-     *                                      the user typed in the Test panel.
+     * Trigger payload is derived automatically: if a Webhook node has testMode
+     * enabled and a valid JSON samplePayload, that payload is used. Otherwise
+     * the pipeline starts with an empty payload (correct for Input-based pipelines).
      */
-    runPipeline: async (triggerPayload = {}) => {
+    runPipeline: async () => {
       const { nodes, edges, updateNodeData } = get();
+
+      // Derive the trigger payload from a webhook node in test mode.
+      let triggerPayload = {};
+      const webhookNode = nodes.find((n) => n.type === 'webhook' && n.data.testMode === true);
+      if (webhookNode?.data?.samplePayload) {
+        try { triggerPayload = JSON.parse(webhookNode.data.samplePayload); } catch { /* use {} */ }
+      }
 
       // Reset all nodes to idle before starting
       set({
