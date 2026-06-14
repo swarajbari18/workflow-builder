@@ -38,7 +38,7 @@ let _highlightTimer = null;
  * from handleSseEvent on every message. Handles the pipeline lifecycle
  * (completed, error) with auto-reset and cleans up the source on close.
  */
-function _subscribeToRunStream(streamUrl, run_id, get, set) {
+function _subscribeToRunStream(streamUrl, get, set) {
   const evtSource = new EventSource(streamUrl);
 
   evtSource.onmessage = (e) => {
@@ -90,10 +90,11 @@ function _subscribeToRunStream(streamUrl, run_id, get, set) {
     }
   };
 
-  evtSource.onerror = () => {
-    evtSource.close();
-    set({ runStatus: 'error', activeRunId: null });
-  };
+    evtSource.onerror = (err) => {
+      console.error('SSE Error:', err);
+      evtSource.close();
+      set({ runStatus: 'error', activeRunId: null });
+    };
 }
 
 function _clearHighlight(set) {
@@ -133,19 +134,11 @@ export const useStore = create((set, get) => ({
         });
     },
     onNodesChange: (changes) => {
-      // Only structural changes (add/remove) invalidate the DAG result.
-      // Position, dimension, and select changes are non-topological.
-      const isStructural = changes.some((c) => c.type === 'add' || c.type === 'remove');
-      if (isStructural && get().dagStatus !== 'pristine') _clearHighlight(set);
       set({
         nodes: applyNodeChanges(changes, get().nodes),
       });
     },
     onEdgesChange: (changes) => {
-      // Only structural changes (add/remove) invalidate the DAG result.
-      // Select changes are non-topological.
-      const isStructural = changes.some((c) => c.type === 'add' || c.type === 'remove');
-      if (isStructural && get().dagStatus !== 'pristine') _clearHighlight(set);
       set({
         edges: applyEdgeChanges(changes, get().edges),
       });
@@ -299,7 +292,7 @@ export const useStore = create((set, get) => ({
         const { run_id, stream_url } = await r.json();
         set({ activeRunId: run_id });
 
-        _subscribeToRunStream(`${BACKEND_URL}${stream_url}`, run_id, get, set);
+        _subscribeToRunStream(`${BACKEND_URL}${stream_url}`, get, set);
 
       } catch {
         set({ runStatus: 'error', activeRunId: null });
@@ -313,8 +306,8 @@ export const useStore = create((set, get) => ({
      * @param {string} fromNodeId - The node the user right-clicked "Run from here" on.
      */
     runFromNode: async (fromNodeId) => {
-      const { nodes, edges, nodeOutputCache, staleNodeIds } = get();
-      const stale = staleNodeIds.size > 0 ? staleNodeIds : getStaleNodeIds(fromNodeId, nodes, edges);
+      const { nodes, nodeOutputCache, staleNodeIds } = get();
+      const stale = staleNodeIds.size > 0 ? staleNodeIds : getStaleNodeIds(fromNodeId, nodes, get().edges);
 
       // Build reuse_outputs from cached outputs of nodes that are NOT stale.
       const reuseOutputs = {};
@@ -444,7 +437,7 @@ export const useStore = create((set, get) => ({
         });
 
         const streamUrl = `/runs/${runId}/stream`;
-        _subscribeToRunStream(`${BACKEND_URL}${streamUrl}`, runId, get, set);
+        _subscribeToRunStream(`${BACKEND_URL}${streamUrl}`, get, set);
 
       } catch {
         set({ runStatus: 'error' });

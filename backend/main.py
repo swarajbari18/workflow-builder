@@ -219,7 +219,7 @@ def get_run(run_id: str, db: Database = Depends(get_db)):
 
 
 @app.post("/runs/{run_id}/resume")
-def resume_run(run_id: str, req: ResumeRequest, db: Database = Depends(get_db)):
+async def resume_run(run_id: str, req: ResumeRequest, db: Database = Depends(get_db)):
     """
     Resumes a suspended (or timed-out) run when a human provides a response.
     Validates the callback token before accepting — invalid tokens return 403.
@@ -241,7 +241,30 @@ def resume_run(run_id: str, req: ResumeRequest, db: Database = Depends(get_db)):
         "node_outputs": updated_run["node_outputs"],
         "suspension_context": updated_run["suspension_context"],
     })
-    return db.get_run(run_id)
+
+    run = db.get_run(run_id)
+    workflow = db.get_workflow(run["workflow_id"])
+    if not workflow:
+        raise HTTPException(status_code=500, detail="Workflow not found")
+
+    definition = workflow.get("definition", {})
+    queue: asyncio.Queue = asyncio.Queue()
+    _RUN_QUEUES[run_id] = queue
+
+    asyncio.create_task(
+        execute_pipeline(
+            run=run,
+            graph={"nodes": definition.get("nodes", []), "edges": definition.get("edges", [])},
+            db=db,
+            sse_queue=queue,
+            reuse_outputs=run["node_outputs"],
+            trigger_payload={},
+            is_development=True,
+        ),
+        name=f"engine-{run_id}",
+    )
+
+    return run
 
 
 # ---------------------------------------------------------------------------

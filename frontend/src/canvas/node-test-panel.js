@@ -99,8 +99,6 @@ const errorResultStyle = {
 };
 
 function MockInput({ handle, value, onChange }) {
-  const color = DATA_TYPE_COLORS[handle.dataType];
-
   const handleChange = (v) => onChange(handle.id, v);
 
   if (handle.dataType === 'boolean') {

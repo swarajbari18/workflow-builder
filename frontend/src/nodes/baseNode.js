@@ -226,7 +226,6 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
     );
   const isIncompatible = !!connectionMode && !isDragSource && !canReceive;
 
-  const isSkipped = executionState === 'stale' || executionState === 'skipped';
   const executionGlow = stateConfig.glow;
 
   const stateStyle = canReceive

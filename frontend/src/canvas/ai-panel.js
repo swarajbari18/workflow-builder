@@ -8,7 +8,7 @@
  * reasoning before the code. Code is evidence, not the message. The "Use this"
  * button writes generatedCode and aiExplanation onto the node and closes the panel.
  */
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useStore } from '../store';
 import { LIQUID_GLASS } from '../styles/design-tokens';
@@ -197,8 +197,9 @@ export function AiPanel() {
   const chatEndRef = useRef(null);
 
   const key = aiPanelKey ? `${aiPanelKey.nodeId}/${aiPanelKey.fieldName}` : null;
-  const messages = key ? (aiConversations[key] || []) : [];
   const node = aiPanelKey ? nodes.find((n) => n.id === aiPanelKey.nodeId) : null;
+
+  const messages = useMemo(() => (key ? (aiConversations[key] || []) : []), [key, aiConversations]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });

@@ -111,7 +111,6 @@ export const PipelineUI = () => {
           });
 
       const nodeId = getNodeID(nodeType);
-      const spec = NODE_SPECS[nodeType];
       addNode({
         id: nodeId,
         type: nodeType,

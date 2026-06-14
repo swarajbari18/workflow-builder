@@ -9,7 +9,7 @@
  * Real Liquid Glass material (static, appears once). Triggered by the ◉ button
  * in the dock. Updates in real time as SSE events arrive during a run.
  */
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useStore } from '../store';
 import { ValueDisplay } from './value-display';

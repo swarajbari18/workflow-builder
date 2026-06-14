@@ -17,7 +17,7 @@ import { shallow } from 'zustand/shallow';
 import { useStore } from '../store';
 import { ValueDisplay } from './value-display';
 import { NODE_SPECS } from '../nodes/nodeSpecs';
-import { NODE_CARD, DATA_TYPE_COLORS, LIQUID_GLASS } from '../styles/design-tokens';
+import { NODE_CARD, DATA_TYPE_COLORS } from '../styles/design-tokens';
 
 const cardStyle = {
   position: 'fixed',
