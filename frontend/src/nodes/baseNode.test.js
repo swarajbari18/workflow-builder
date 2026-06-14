@@ -8,7 +8,7 @@
  */
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ReactFlowProvider } from 'reactflow';
-import { BaseNode, isFieldVisible } from './baseNode';
+import { BaseNode, isFieldVisible, isHandleHidden } from './baseNode';
 import { useStore } from '../store';
 import { CATEGORY_COLORS, CATEGORY_ICONS, EXECUTION_STATES, NODE_CARD, SELECTION_RING } from '../styles/design-tokens';
 
@@ -36,6 +36,46 @@ describe('isFieldVisible', () => {
   test('supports a list of allowed values', () => {
     expect(isFieldVisible(fields[3], { op: 'y' }, fields)).toBe(true);
     expect(isFieldVisible(fields[3], { op: 'z' }, fields)).toBe(false);
+  });
+});
+
+describe('isHandleHidden', () => {
+  const nodeId = 'script-1';
+  const fnSchemaHandle = {
+    id: 'fn-schema',
+    kind: 'source',
+    side: 'right',
+    dataType: 'fn-schema',
+    hiddenWhen: { handleConnected: 'input' },
+  };
+  const plainHandle = { id: 'result', kind: 'source', side: 'right', dataType: 'dynamic' };
+
+  test('returns false for a handle with no hiddenWhen condition', () => {
+    expect(isHandleHidden(plainHandle, nodeId, [])).toBe(false);
+  });
+
+  test('returns false when the sibling handle has no edges', () => {
+    expect(isHandleHidden(fnSchemaHandle, nodeId, [])).toBe(false);
+  });
+
+  test('returns true when the sibling target handle is connected', () => {
+    const edges = [{ sourceHandle: 'other-1-value', targetHandle: 'script-1-input' }];
+    expect(isHandleHidden(fnSchemaHandle, nodeId, edges)).toBe(true);
+  });
+
+  test('returns true when the sibling source handle is connected (symmetric)', () => {
+    const edges = [{ sourceHandle: 'script-1-input', targetHandle: 'other-1-x' }];
+    expect(isHandleHidden(fnSchemaHandle, nodeId, edges)).toBe(true);
+  });
+
+  test('returns false when an edge exists for a different node with the same handle name', () => {
+    const edges = [{ sourceHandle: 'other-1-value', targetHandle: 'other-1-input' }];
+    expect(isHandleHidden(fnSchemaHandle, nodeId, edges)).toBe(false);
+  });
+
+  test('returns false for unrecognised hiddenWhen keys (future-proofing)', () => {
+    const futureHandle = { id: 'x', hiddenWhen: { someNewCondition: 'foo' } };
+    expect(isHandleHidden(futureHandle, nodeId, [])).toBe(false);
   });
 });
 

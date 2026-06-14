@@ -127,6 +127,18 @@ describe('isCompatibleTypes', () => {
     expect(isCompatibleTypes('trigger', 'string')).toBe(false);
     expect(isCompatibleTypes('fn-schema', 'json')).toBe(false);
   });
+
+  test('dynamic is compatible with every concrete type (source) — runtime wildcard', () => {
+    ['string', 'number', 'boolean', 'json', 'array', 'message[]', 'file', 'fn-schema', 'trigger'].forEach((t) => {
+      expect(isCompatibleTypes('dynamic', t)).toBe(true);
+    });
+  });
+
+  test('dynamic is compatible with every concrete type (target) — runtime wildcard', () => {
+    ['string', 'number', 'boolean', 'json', 'array', 'message[]', 'file', 'fn-schema', 'trigger'].forEach((t) => {
+      expect(isCompatibleTypes(t, 'dynamic')).toBe(true);
+    });
+  });
 });
 
 // --- NodeSpec v2 ---
@@ -250,6 +262,41 @@ describe('NodeSpec v2 — dynamic handles', () => {
   });
 });
 
+describe('NodeSpec v2 — hiddenWhen (Script node dual-mode)', () => {
+  const script = NODE_SPECS.script;
+
+  test('Script fn-schema handle declares hiddenWhen.handleConnected pointing at input', () => {
+    const fnSchema = script.handles.find((h) => h.id === 'fn-schema');
+    expect(fnSchema).toBeDefined();
+    expect(fnSchema.hiddenWhen).toBeDefined();
+    expect(fnSchema.hiddenWhen.handleConnected).toBe('input');
+  });
+
+  test('Script input handle has no hiddenWhen (it is always present)', () => {
+    const input = script.handles.find((h) => h.id === 'input');
+    expect(input).toBeDefined();
+    expect(input.hiddenWhen).toBeUndefined();
+  });
+
+  test('Script result and error handles have no hiddenWhen', () => {
+    ['result', 'error'].forEach((hid) => {
+      const h = script.handles.find((x) => x.id === hid);
+      expect(h).toBeDefined();
+      expect(h.hiddenWhen).toBeUndefined();
+    });
+  });
+
+  test('only the Script node declares hiddenWhen on any handle', () => {
+    // No other spec should use hiddenWhen yet — this ensures future uses are deliberate.
+    Object.entries(NODE_SPECS).forEach(([key, spec]) => {
+      if (key === 'script') return;
+      spec.handles.forEach((h) => {
+        expect(h.hiddenWhen).toBeUndefined();
+      });
+    });
+  });
+});
+
 describe('NodeSpec v2 — AI-assisted fields', () => {
   test('Condition node description field is aiAssisted', () => {
     const descField = NODE_SPECS.condition.fields.find((f) => f.name === 'description');
@@ -320,5 +367,39 @@ describe('NodeSpec v2 — data type system', () => {
     const cronHandle = NODE_SPECS.cron.handles.find((h) => h.kind === 'source');
     expect(webhookHandle.dataType).toBe('trigger');
     expect(cronHandle.dataType).toBe('trigger');
+  });
+});
+
+describe('Output node — delivery webhook fields', () => {
+  const outputSpec = NODE_SPECS.customOutput;
+
+  test('has a notifyWebhook advanced field', () => {
+    const field = outputSpec.fields.find((f) => f.name === 'notifyWebhook');
+    expect(field).toBeDefined();
+    expect(field.kind).toBe('text');
+    expect(field.advanced).toBe(true);
+  });
+
+  test('has a webhookSecret advanced field', () => {
+    const field = outputSpec.fields.find((f) => f.name === 'webhookSecret');
+    expect(field).toBeDefined();
+    expect(field.kind).toBe('text');
+    expect(field.advanced).toBe(true);
+  });
+
+  test('notifyWebhook and webhookSecret are the last two fields (after the primary fields)', () => {
+    const names = outputSpec.fields.map((f) => f.name);
+    const notifyIdx = names.indexOf('notifyWebhook');
+    const secretIdx = names.indexOf('webhookSecret');
+    // Both must exist and both must be after outputName and outputType
+    expect(notifyIdx).toBeGreaterThan(names.indexOf('outputName'));
+    expect(secretIdx).toBeGreaterThan(names.indexOf('outputType'));
+  });
+
+  // Symmetry check: Input node has the same field names. Same contract, opposite direction.
+  test('mirrors Input node webhook field names for conceptual symmetry', () => {
+    const inputFields = NODE_SPECS.customInput.fields.map((f) => f.name);
+    expect(inputFields).toContain('notifyWebhook');
+    expect(outputSpec.fields.map((f) => f.name)).toContain('notifyWebhook');
   });
 });

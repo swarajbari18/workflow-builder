@@ -52,11 +52,33 @@ describe('NodeHandle', () => {
     expect(shape.dataset.rainbow).toBe('true');
   });
 
-  test('dynamic type renders data-handle-shape=squircle', () => {
+  test('dynamic type renders a squircle with its own visible color (not pitch black, not rainbow)', () => {
     const { container } = renderHandle({
       handle: { id: 'result', kind: 'source', side: 'right', dataType: 'dynamic' },
     });
-    expect(container.querySelector('[data-handle-shape="squircle"]')).toBeInTheDocument();
+    const shape = container.querySelector('[data-handle-shape="squircle"]');
+    expect(shape).toBeInTheDocument();
+    // dynamic has its own color token (#E0E0E0) — it must NOT be rainbow
+    // and must NOT be undefined (which was the bug that caused pitch-black renders).
+    expect(shape.dataset.rainbow).not.toBe('true');
+    expect(shape.dataset.handleColor).toBe(DATA_TYPE_COLORS.dynamic);
+  });
+
+  test('dynamic type data-handle-color is defined and not the any sentinel', () => {
+    const { container } = renderHandle({
+      handle: { id: 'result', kind: 'source', side: 'right', dataType: 'dynamic' },
+    });
+    const shape = container.querySelector('[data-handle-color]');
+    expect(shape.dataset.handleColor).toBeDefined();
+    expect(shape.dataset.handleColor).not.toBe('rainbow');
+    expect(shape.dataset.handleColor).toBe(DATA_TYPE_COLORS.dynamic);
+  });
+
+  test('renders without crashing for dynamic dataType', () => {
+    const { container } = renderHandle({
+      handle: { id: 'h', kind: 'source', side: 'right', dataType: 'dynamic' },
+    });
+    expect(container.firstChild).toBeInTheDocument();
   });
 
   test('handle color data attribute matches DATA_TYPE_COLORS for string', () => {
@@ -82,13 +104,6 @@ describe('NodeHandle', () => {
       });
       expect(container.firstChild).toBeInTheDocument();
     });
-  });
-
-  test('renders without crashing for dynamic dataType', () => {
-    const { container } = renderHandle({
-      handle: { id: 'h', kind: 'source', side: 'right', dataType: 'dynamic' },
-    });
-    expect(container.firstChild).toBeInTheDocument();
   });
 
   test('root wrapper has 32px width and height for the hit area', () => {

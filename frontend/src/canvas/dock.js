@@ -8,6 +8,10 @@
  * Each category shows an icon AND a label (the Apple-dock pattern); hovering a category
  * opens a tray of node cards, each with a category-coloured icon tile, the node name, and
  * a one-line description. Real Liquid Glass material (static, single instance).
+ *
+ * The DAG status indicator lives in the action cluster (right of the separator). It is
+ * stateful: pristine ◌ → pending (dimmed ◌) → valid ✓ or invalid ✕. Clicking it calls
+ * submitPipeline. Any graph change resets it to pristine.
  */
 import { useState, useCallback, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
@@ -26,7 +30,6 @@ const CATEGORIES = [
 
 const CATEGORY_ICONS = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.icon]));
 
-// One-line descriptions for each node type, used in the category tray cards.
 const NODE_DESCRIPTIONS = {
   customInput:  'Pipeline entry point — accepts text or file input',
   customOutput: 'Pipeline terminal — displays the final result',
@@ -41,12 +44,53 @@ const NODE_DESCRIPTIONS = {
   script:       'Run a Python transform on your input — describe it, AI writes the code',
 };
 
+/**
+ * Visual configuration for each dagStatus value.
+ * icon: the glyph rendered in the button
+ * color: text/icon colour
+ * title: tooltip text
+ * className: optional CSS class for entry animation
+ * disabled: prevents re-clicking while in flight
+ */
+const DAG_STATUS_CONFIG = {
+  pristine: {
+    icon:      '◌',
+    color:     'rgba(255,255,255,0.38)',
+    title:     'Submit — check if graph is a valid DAG',
+    className: '',
+    disabled:  false,
+  },
+  pending: {
+    icon:      '◌',
+    color:     'rgba(255,255,255,0.25)',
+    title:     'Checking…',
+    className: '',
+    disabled:  true,
+  },
+  valid: {
+    icon:      '✓',
+    color:     '#34C759',
+    title:     'Valid DAG ✓',
+    className: 'dag-status-valid-enter',
+    disabled:  false,
+  },
+  invalid: {
+    icon:      '✕',
+    color:     '#FF9500',
+    title:     'Not a valid DAG — graph contains a cycle',
+    className: '',
+    disabled:  false,
+  },
+};
+
 const storeSelector = (s) => ({
-  addNode:      s.addNode,
-  getNodeID:    s.getNodeID,
-  rfInstance:   s.rfInstance,
-  openPalette:  s.openPalette,
-  nodeCount:    s.nodes.length,
+  addNode:         s.addNode,
+  getNodeID:       s.getNodeID,
+  rfInstance:      s.rfInstance,
+  openPalette:     s.openPalette,
+  nodeCount:       s.nodes.length,
+  dagStatus:       s.dagStatus,
+  submitPipeline:  s.submitPipeline,
 });
 
 const glassStyle = {
@@ -217,13 +261,43 @@ function CategoryTray({ category, onNodeSelect, onMouseLeave }) {
   );
 }
 
+/**
+ * @param {{ dagStatus: 'pristine'|'pending'|'valid'|'invalid', onSubmit: () => void }} props
+ */
+function DagStatusButton({ dagStatus, onSubmit }) {
+  const cfg = DAG_STATUS_CONFIG[dagStatus];
+  return (
+    <button
+      data-testid="dock-submit-btn"
+      data-dag-status={dagStatus}
+      style={{
+        ...iconBtnStyle,
+        color: cfg.color,
+        opacity: dagStatus === 'pending' ? 0.5 : 1,
+        cursor: cfg.disabled ? 'wait' : 'pointer',
+        // invalid fades in quietly — no abrupt snap
+        transition: 'color 180ms ease, opacity 180ms ease',
+      }}
+      title={cfg.title}
+      disabled={cfg.disabled}
+      onClick={onSubmit}
+      className={cfg.className}
+    >
+      {cfg.icon}
+    </button>
+  );
+}
+
 export function Dock() {
-  const { addNode, getNodeID, rfInstance, openPalette, nodeCount } = useStore(storeSelector, shallow);
+  const {
+    addNode, getNodeID, rfInstance, openPalette,
+    nodeCount, dagStatus, submitPipeline,
+  } = useStore(storeSelector, shallow);
+
   const [activeCategory, setActiveCategory] = useState(null);
   const [dockVisible, setDockVisible] = useState(false);
   const hideTimeoutRef = useRef(null);
 
-  // Pinned open while the canvas is empty so a first-time user can find the nodes.
   const pinned = nodeCount === 0;
   const visible = pinned || dockVisible;
 
@@ -242,7 +316,6 @@ export function Dock() {
   const handleNodeSelect = useCallback(
     (spec) => {
       const id = getNodeID(spec.type);
-      // Cascade each placement off canvas centre so successive nodes never stack.
       const cascade = (nodeCount % 8) * 36;
       let position = { x: 360 + cascade, y: 220 + cascade };
       if (rfInstance) {
@@ -315,6 +388,9 @@ export function Dock() {
           <button data-testid="dock-run-btn" style={iconBtnStyle} title="Run pipeline">
             ▶
           </button>
+
+          <DagStatusButton dagStatus={dagStatus} onSubmit={submitPipeline} />
+
           <button data-testid="dock-state-btn" style={iconBtnStyle} title="Global state">
             ◉
           </button>

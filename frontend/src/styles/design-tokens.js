@@ -33,6 +33,10 @@ export const DATA_TYPE_COLORS = {
   'fn-schema': '#5E5CE6',
   trigger:     '#FFFFFF',
   any:         'rainbow',
+  // `dynamic` — type is resolved at runtime by AI-generated code.
+  // White until the node executes and the concrete type is known.
+  // Placed here so wires and handles are visible before code runs.
+  dynamic:     '#E0E0E0',
 };
 
 /**

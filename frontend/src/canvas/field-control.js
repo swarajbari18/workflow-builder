@@ -9,7 +9,7 @@
  * Controls are uncontrolled-of-the-store: they read `value` and report changes via
  * `onChange(newValue)`. The inspector owns the wiring to the store.
  */
-import { useId } from 'react';
+import { useId, useRef, useEffect } from 'react';
 
 const labelStyle = {
   display: 'block',
@@ -188,16 +188,32 @@ export function FieldControl({ field, value, onChange }) {
     );
   }
 
+  // Auto-grow textarea: keep a ref so we can seed the height on mount and after
+  // every value change without the user needing to drag the resize handle.
+  const textareaRef = useRef(null);
+  useEffect(() => {
+    if (field.kind !== 'textarea' || !textareaRef.current) return;
+    const el = textareaRef.current;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [field.kind, value]);
+
   return (
     <div>
       <label style={labelStyle} htmlFor={id}>{field.label ?? field.name}</label>
       {field.kind === 'textarea' ? (
         <textarea
           id={id}
-          style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }}
+          ref={textareaRef}
+          style={{ ...inputStyle, minHeight: 72, resize: 'none', overflow: 'hidden' }}
           placeholder={field.placeholder}
           value={value ?? ''}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value);
+            // Immediately grow on input so there is no flash of a scrollbar.
+            e.target.style.height = 'auto';
+            e.target.style.height = `${e.target.scrollHeight}px`;
+          }}
         />
       ) : field.kind === 'select' ? (
         <select

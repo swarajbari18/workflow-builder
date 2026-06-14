@@ -11,3 +11,15 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* DAG-valid entry — scale settles like a physical object landing in place.
+   Applied only when transitioning to the valid state; invalid just fades in. */
+@keyframes dag-valid-entry {
+  0%   { transform: scale(0.70); opacity: 0; }
+  60%  { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1.00); opacity: 1; }
+}
+
+.dag-status-valid-enter {
+  animation: dag-valid-entry 280ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}

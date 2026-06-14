@@ -10,7 +10,10 @@ const textSpec = {
   category: 'data',
   execution: { kind: 'template' },
   handles: [{ id: 'output', kind: 'source', side: 'right', dataType: 'string' }],
-  fields: [{ name: 'content', kind: 'textarea', label: 'Template', default: '{{input}}' }],
+  fields: [
+    { name: 'label', kind: 'text', label: 'Node name', placeholder: 'e.g. System Prompt' },
+    { name: 'content', kind: 'textarea', label: 'Template', default: '{{input}}' },
+  ],
   dynamicHandles: {
     trigger: 'field-parse',
     fromField: 'content',

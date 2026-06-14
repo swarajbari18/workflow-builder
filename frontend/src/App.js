@@ -1,17 +1,12 @@
 /**
- * App — the pipeline builder. The Dock (inside PipelineUI) replaces the old
- * PipelineToolbar; SubmitButton remains for pipeline execution.
+ * App — the pipeline builder. The Dock (inside PipelineUI) is the single
+ * orchestration surface — node discovery, Run, Submit (DAG check), State,
+ * and Search all live there.
  */
 import { PipelineUI } from './ui';
-import { SubmitButton } from './submit';
 
 function App() {
-  return (
-    <div style={{ position: 'relative' }}>
-      <PipelineUI />
-      <SubmitButton />
-    </div>
-  );
+  return <PipelineUI />;
 }
 
 export default App;

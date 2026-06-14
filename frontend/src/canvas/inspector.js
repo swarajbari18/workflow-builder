@@ -116,7 +116,7 @@ export function Inspector() {
   return (
     <div data-testid="inspector" style={panelStyle}>
       <div style={headerStyle(accent)}>
-        <span style={titleStyle}>{spec.title}</span>
+        <span style={titleStyle}>{node.data.label || spec.title}</span>
         <button aria-label="Close inspector" style={closeBtnStyle} onClick={closeInspector}>
           ×
         </button>

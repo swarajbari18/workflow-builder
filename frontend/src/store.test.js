@@ -1,6 +1,7 @@
 /**
  * Unit tests for the pipeline store: node creation, id generation, immutable
- * field update, connection mode, command palette, and context menu state.
+ * field update, connection mode, command palette, context menu state, and the
+ * DAG status state machine.
  */
 import { useStore } from './store';
 
@@ -14,6 +15,7 @@ beforeEach(() => {
     paletteFilter: null,
     paletteDropPos: null,
     contextMenu: null,
+    dagStatus: 'pristine',
   });
 });
 
@@ -101,5 +103,72 @@ describe('context menu', () => {
     useStore.getState().openContextMenu('pane', 0, 0, null);
     useStore.getState().closeContextMenu();
     expect(useStore.getState().contextMenu).toBeNull();
+  });
+});
+
+describe('DAG status state machine', () => {
+  test('initial dagStatus is pristine', () => {
+    expect(useStore.getState().dagStatus).toBe('pristine');
+  });
+
+  test('onNodesChange resets dagStatus from valid to pristine', () => {
+    useStore.setState({ dagStatus: 'valid' });
+    useStore.getState().onNodesChange([{ type: 'position', id: 'n-1', position: { x: 1, y: 1 } }]);
+    expect(useStore.getState().dagStatus).toBe('pristine');
+  });
+
+  test('onEdgesChange resets dagStatus from valid to pristine', () => {
+    useStore.setState({ dagStatus: 'valid' });
+    useStore.getState().onEdgesChange([{ type: 'remove', id: 'e-1' }]);
+    expect(useStore.getState().dagStatus).toBe('pristine');
+  });
+
+  test('onEdgesChange resets dagStatus from invalid to pristine', () => {
+    useStore.setState({ dagStatus: 'invalid' });
+    useStore.getState().onEdgesChange([{ type: 'remove', id: 'e-1' }]);
+    expect(useStore.getState().dagStatus).toBe('pristine');
+  });
+
+  test('updateNodeField does NOT reset dagStatus — field values are not topology', () => {
+    const node = { id: 'llm-1', type: 'llm', position: { x: 0, y: 0 }, data: { model: 'old' } };
+    useStore.setState({ nodes: [node], dagStatus: 'valid' });
+    useStore.getState().updateNodeField('llm-1', 'model', 'new');
+    expect(useStore.getState().dagStatus).toBe('valid');
+  });
+
+  test('submitPipeline sets dagStatus to pending then resolves to valid', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ num_nodes: 2, num_edges: 1, is_dag: true }),
+    });
+
+    useStore.setState({
+      nodes: [
+        { id: 'n-1', type: 'customInput', position: { x: 0, y: 0 }, data: {} },
+        { id: 'n-2', type: 'customOutput', position: { x: 200, y: 0 }, data: {} },
+      ],
+      edges: [{ id: 'e-1', source: 'n-1', target: 'n-2' }],
+    });
+
+    const promise = useStore.getState().submitPipeline();
+    expect(useStore.getState().dagStatus).toBe('pending');
+    await promise;
+    expect(useStore.getState().dagStatus).toBe('valid');
+  });
+
+  test('submitPipeline resolves to invalid when backend returns is_dag: false', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ num_nodes: 2, num_edges: 2, is_dag: false }),
+    });
+
+    await useStore.getState().submitPipeline();
+    expect(useStore.getState().dagStatus).toBe('invalid');
+  });
+
+  test('submitPipeline resolves to invalid when the fetch throws', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+    await useStore.getState().submitPipeline();
+    expect(useStore.getState().dagStatus).toBe('invalid');
   });
 });

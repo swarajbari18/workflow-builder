@@ -37,11 +37,14 @@ describe('DATA_TYPE_COLORS', () => {
   const EXPECTED_TYPES = [
     'string', 'number', 'boolean', 'json', 'array',
     'message[]', 'file', 'fn-schema', 'trigger', 'any',
+    // `dynamic` is a handle-level type (not a DATA_TYPES enum value) but it
+    // does have a color entry so wires/handles are visible before runtime resolves the type.
+    'dynamic',
   ];
 
-  test('has exactly the 10 canonical data types', () => {
+  test('has exactly the 11 canonical data type colors (10 DATA_TYPES + dynamic)', () => {
     expect(Object.keys(DATA_TYPE_COLORS)).toEqual(expect.arrayContaining(EXPECTED_TYPES));
-    expect(Object.keys(DATA_TYPE_COLORS).length).toBe(10);
+    expect(Object.keys(DATA_TYPE_COLORS).length).toBe(11);
   });
 
   test('every colour value is a non-empty string', () => {

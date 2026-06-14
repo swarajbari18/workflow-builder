@@ -37,6 +37,35 @@ export function isFieldVisible(field, data, fields) {
   });
 }
 
+/**
+ * Returns true when a handle should be omitted from the rendered node.
+ *
+ * Currently supports one condition: `hiddenWhen.handleConnected` — the handle
+ * disappears while the named sibling handle on the same node has at least one
+ * live edge. This drives the Script node's transform ↔ tool mode switch:
+ *
+ *   input wired   → fn-schema is hidden  (transform mode)
+ *   input absent  → fn-schema is visible  (tool mode)
+ *
+ * Exported so the inspector can call the same predicate without duplicating logic.
+ *
+ * @param {import('./nodeSpecs').Handle} handle  The handle to evaluate.
+ * @param {string} nodeId                         The containing node's React Flow id.
+ * @param {Array<{sourceHandle: string, targetHandle: string}>} edges  Current edge list.
+ * @returns {boolean}
+ */
+export function isHandleHidden(handle, nodeId, edges) {
+  const condition = handle.hiddenWhen;
+  if (!condition) return false;
+  if (condition.handleConnected) {
+    const siblingHandleId = `${nodeId}-${condition.handleConnected}`;
+    return edges.some(
+      (e) => e.sourceHandle === siblingHandleId || e.targetHandle === siblingHandleId,
+    );
+  }
+  return false;
+}
+
 const cardStyle = (category) => ({
   position: 'relative',
   width: NODE_CARD.width,
@@ -116,8 +145,9 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
   const edges = useRFStore((state) => state.edges);
 
   const handles = extraHandles ? [...spec.handles, ...extraHandles] : spec.handles;
-  const leftHandles = handles.filter((h) => h.side === 'left');
-  const rightHandles = handles.filter((h) => h.side === 'right');
+  const visibleHandles = handles.filter((h) => !isHandleHidden(h, id, edges));
+  const leftHandles = visibleHandles.filter((h) => h.side === 'left');
+  const rightHandles = visibleHandles.filter((h) => h.side === 'right');
   const rowCount = Math.max(leftHandles.length, rightHandles.length, 1);
 
   // Each handle (connection point, visual, and label) lives in one row so they stay
@@ -196,7 +226,7 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
           <span style={categoryIconStyle(spec.category)} aria-hidden="true">
             {CATEGORY_ICONS[spec.category]}
           </span>
-          <span>{spec.title}</span>
+          <span>{data.label || spec.title}</span>
         </span>
         <div
           data-status-dot

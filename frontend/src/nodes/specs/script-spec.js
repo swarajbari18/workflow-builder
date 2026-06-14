@@ -1,12 +1,21 @@
 /**
- * Transform — runs a Python script over its input while the graph executes.
+ * Transform / Custom Script — runs a Python function over its input while the graph executes.
+ *
+ * This node has TWO mutually exclusive operating modes that are determined at runtime
+ * by whether the `input` handle has a live wire connected to it:
+ *
+ *   MODE A — Data Transform (input IS connected)
+ *     The node receives a concrete value, transforms it, and emits `result`.
+ *     `fn-schema` is hidden — the node is not a reusable tool, it runs inline.
+ *
+ *   MODE B — Tool (input is NOT connected)
+ *     The node exposes a callable `fn-schema` so an Agent can invoke it as a tool.
+ *     The Agent provides the inputs when calling; `result` carries the return value.
  *
  * The user never writes code: they describe the transform in English and the AI writes
- * the Python (read-only, visible if they want to look). It is Python specifically
- * because the backend runtime that executes the graph is Python — language is a runtime
- * constraint, not a user choice, so there is no language field. Conceptually this is a
- * data transformation, not an "AI feature" like the LLM/Agent nodes, so it lives in the
- * Data category. It always has an `input` handle; the AI may declare additional inputs.
+ * the Python (read-only, visible if they want to look). Python is the only language
+ * because the backend runtime is Python — language is a runtime constraint, not a
+ * user choice. Conceptually this lives in the Data category, not AI.
  * @type {import('../nodeSpecs').NodeSpec}
  */
 const scriptSpec = {
@@ -21,9 +30,21 @@ const scriptSpec = {
     schemaOutputHandle: 'fn-schema',
   },
   handles: [
+    // The `input` handle is ALWAYS present. When it is connected the node is in
+    // transform mode; when it is disconnected the node is in tool mode.
     { id: 'input', kind: 'target', side: 'left', dataType: 'any', label: 'input' },
     { id: 'result', kind: 'source', side: 'right', offset: '33%', dataType: 'dynamic', label: 'result' },
-    { id: 'fn-schema', kind: 'source', side: 'right', offset: '66%', dataType: 'fn-schema', label: 'tool schema' },
+    {
+      id: 'fn-schema',
+      kind: 'source',
+      side: 'right',
+      offset: '66%',
+      dataType: 'fn-schema',
+      label: 'tool schema',
+      // Hidden whenever the `input` handle has a live edge — the node is acting as
+      // a data transform at that point, not a reusable agent tool.
+      hiddenWhen: { handleConnected: 'input' },
+    },
     { id: 'error', kind: 'source', side: 'right', offset: '100%', label: 'error', dataType: 'json' },
   ],
   fields: [

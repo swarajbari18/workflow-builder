@@ -50,6 +50,16 @@ export const DATA_TYPES = Object.freeze({
 });
 
 /**
+ * @typedef {Object} HandleHiddenWhen
+ * @property {string} [handleConnected]  Hide this handle when the named sibling handle on
+ *                                        the same node has at least one active edge. Use this
+ *                                        to express mutually exclusive modes (e.g. a `fn-schema`
+ *                                        source that should disappear once an `input` wire is
+ *                                        connected, because the node is now a data-transform
+ *                                        rather than a reusable tool).
+ */
+
+/**
  * @typedef {Object} Handle
  * @property {string} id
  * @property {'source'|'target'} kind
@@ -58,6 +68,7 @@ export const DATA_TYPES = Object.freeze({
  * @property {string} [label]
  * @property {string} [dataType]   One of DATA_TYPES values, or 'dynamic'.
  * @property {boolean} [streamable]
+ * @property {HandleHiddenWhen} [hiddenWhen]  Hides the handle when a runtime condition is met.
  */
 
 /**
@@ -142,6 +153,9 @@ export const NODE_SPECS = {
  */
 export function isCompatibleTypes(sourceType, targetType) {
   if (sourceType === DATA_TYPES.ANY || targetType === DATA_TYPES.ANY) return true;
+  // `dynamic` means the concrete type is resolved at runtime — treat as wildcard
+  // so dragging from a dynamic source highlights all valid target handles.
+  if (sourceType === 'dynamic' || targetType === 'dynamic') return true;
   return sourceType === targetType;
 }
 

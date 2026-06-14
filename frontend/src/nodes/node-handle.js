@@ -112,7 +112,7 @@ export function NodeHandle({ handle, revealed, connected }) {
   const isTrigger = dataType === TRIGGER_TYPE;
   const rawColor = DATA_TYPE_COLORS[dataType];
   const isRainbow = rawColor === 'rainbow';
-  const color = isRainbow ? null : (rawColor ?? DATA_TYPE_COLORS.any);
+  const color = isRainbow ? null : rawColor;
 
   const wrapperStyle = {
     position: 'absolute',
