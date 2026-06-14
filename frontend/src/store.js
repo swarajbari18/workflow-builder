@@ -72,6 +72,29 @@ export const useStore = create((set, get) => ({
       });
     },
 
+    deleteNode: (nodeId) => {
+      set({
+        nodes: get().nodes.filter((n) => n.id !== nodeId),
+        edges: get().edges.filter(
+          (e) => e.source !== nodeId && e.target !== nodeId,
+        ),
+      });
+    },
+
+    duplicateNode: (nodeId) => {
+      const original = get().nodes.find((n) => n.id === nodeId);
+      if (!original) return;
+      const newId = get().getNodeID(original.type);
+      const copy = {
+        ...original,
+        id: newId,
+        position: { x: original.position.x + 40, y: original.position.y + 40 },
+        data: { ...original.data, id: newId },
+        selected: false,
+      };
+      set({ nodes: [...get().nodes, copy] });
+    },
+
     // Connection mode — active while the user is dragging a wire.
     connectionMode: null,
     startConnection: (sourceNodeId, sourceHandleId, sourceDataType) =>
