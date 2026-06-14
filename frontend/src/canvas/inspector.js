@@ -22,6 +22,7 @@ import { useStore } from '../store';
 import { NODE_SPECS } from '../nodes/nodeSpecs';
 import { isFieldVisible } from '../nodes/baseNode';
 import { FieldControl } from './field-control';
+import { AiPanel } from './ai-panel';
 import { WebhookUrlSection, WebhookFieldsSection } from '../nodes/webhook-node';
 import { LIQUID_GLASS, CATEGORY_COLORS } from '../styles/design-tokens';
 
@@ -30,6 +31,8 @@ const selector = (s) => ({
   nodes: s.nodes,
   updateNodeField: s.updateNodeField,
   closeInspector: s.closeInspector,
+  openAiPanel: s.openAiPanel,
+  aiPanelKey: s.aiPanelKey,
 });
 
 const panelStyle = {
@@ -94,7 +97,7 @@ const disclosureStyle = {
 };
 
 export function Inspector() {
-  const { inspectorNodeId, nodes, updateNodeField, closeInspector } = useStore(selector, shallow);
+  const { inspectorNodeId, nodes, updateNodeField, closeInspector, openAiPanel, aiPanelKey } = useStore(selector, shallow);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const node = nodes.find((n) => n.id === inspectorNodeId);
@@ -124,10 +127,13 @@ export function Inspector() {
       field={field}
       value={valueOf(field)}
       onChange={(v) => updateNodeField(node.id, field.name, v)}
+      onAiAssist={field.aiAssisted ? () => openAiPanel(node.id, field.name) : undefined}
     />
   );
 
   return (
+    <>
+    {aiPanelKey && aiPanelKey.nodeId === node.id && <AiPanel />}
     <div data-testid="inspector" style={panelStyle}>
       <div style={headerStyle(accent)}>
         <span style={titleStyle}>{node.data.label || spec.title}</span>
@@ -167,5 +173,6 @@ export function Inspector() {
         )}
       </div>
     </div>
+    </>
   );
 }

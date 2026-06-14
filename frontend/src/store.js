@@ -316,6 +316,23 @@ export const useStore = create((set, get) => ({
     openInspector: (nodeId) => set({ inspectorNodeId: nodeId }),
     closeInspector: () => set({ inspectorNodeId: null }),
 
+    // AI panel — conversational code-gen panel, opened from aiAssisted fields.
+    // aiPanelKey identifies which node+field triggered the panel.
+    // aiConversations stores message history keyed by "nodeId/fieldName".
+    aiPanelKey: null,
+    aiConversations: {},
+    openAiPanel: (nodeId, fieldName) => set({ aiPanelKey: { nodeId, fieldName } }),
+    closeAiPanel: () => set({ aiPanelKey: null }),
+    appendAiMessage: (nodeId, fieldName, message) => {
+      const key = `${nodeId}/${fieldName}`;
+      set((state) => ({
+        aiConversations: {
+          ...state.aiConversations,
+          [key]: [...(state.aiConversations[key] || []), message],
+        },
+      }));
+    },
+
     // DAG status — result of the last /pipelines/parse submission.
     // 'pristine' : not yet checked, or graph has changed since last check
     // 'pending'  : fetch in flight — button disabled

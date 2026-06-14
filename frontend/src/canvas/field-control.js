@@ -128,15 +128,40 @@ function ParamsEditor({ rows, onChange }) {
   );
 }
 
+const aiSparkBtnStyle = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  color: '#BF5AF2',
+  fontSize: 13,
+  padding: '0 0 0 6px',
+  lineHeight: 1,
+  opacity: 0.85,
+  verticalAlign: 'middle',
+  transition: 'opacity 0.15s',
+};
+
 /**
  * @param {{
  *   field: import('../nodes/nodeSpecs').Field,
  *   value: any,
  *   onChange: (value: any) => void,
+ *   onAiAssist?: () => void,
  * }} props
  */
-export function FieldControl({ field, value, onChange }) {
+export function FieldControl({ field, value, onChange, onAiAssist }) {
   const id = useId();
+
+  // Hooks must come before any conditional return (React rules of hooks).
+  const textareaRef = useRef(null);
+  useEffect(() => {
+    if (field.kind !== 'textarea' || !textareaRef.current) return;
+    const el = textareaRef.current;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [field.kind, value]);
+
+  const showAiSpark = field.kind === 'textarea' && field.aiAssisted && onAiAssist;
 
   if (field.kind === 'info') {
     return (
@@ -188,19 +213,21 @@ export function FieldControl({ field, value, onChange }) {
     );
   }
 
-  // Auto-grow textarea: keep a ref so we can seed the height on mount and after
-  // every value change without the user needing to drag the resize handle.
-  const textareaRef = useRef(null);
-  useEffect(() => {
-    if (field.kind !== 'textarea' || !textareaRef.current) return;
-    const el = textareaRef.current;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [field.kind, value]);
-
   return (
     <div>
-      <label style={labelStyle} htmlFor={id}>{field.label ?? field.name}</label>
+      <label style={{ ...labelStyle, display: 'flex', alignItems: 'center' }} htmlFor={id}>
+        <span style={{ flex: 1 }}>{field.label ?? field.name}</span>
+        {showAiSpark && (
+          <button
+            type="button"
+            aria-label="Open AI assistant"
+            style={aiSparkBtnStyle}
+            onClick={(e) => { e.preventDefault(); onAiAssist(); }}
+          >
+            ✦
+          </button>
+        )}
+      </label>
       {field.kind === 'textarea' ? (
         <textarea
           id={id}
