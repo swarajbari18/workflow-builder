@@ -47,6 +47,7 @@ from dag import analyse_graph
 from database import Database
 from state_machine import create_run, resume_from_suspended, RunStateError
 from engine.engine import execute_pipeline, EXECUTORS
+from routers.ai import router as ai_router
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,7 @@ from engine.engine import execute_pipeline, EXECUTORS
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="Pipeline API")
+app.include_router(ai_router)
 
 app.add_middleware(
     CORSMiddleware,
