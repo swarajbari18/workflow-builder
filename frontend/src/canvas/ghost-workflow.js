@@ -1,13 +1,8 @@
 /**
  * GhostWorkflow — a semi-transparent example pipeline shown on an empty canvas.
  *
- * Design intent (DESIGN-VISION.md): renders at opacity 0.18, brightens to 0.55
- * on hover, and vanishes (600ms transition) once the user places a real node.
- * Clicking a ghost node promotes it to a real node in the store.
- *
- * Implemented as an absolute overlay that sits above the ReactFlow canvas, not
- * as RF nodes — this avoids polluting the user's node/edge state and lets us
- * control visibility independently.
+ * It brightens on hover and vanishes once the user places a real node.
+ * Clicking a ghost node promotes it to a real node.
  */
 import { useState, useCallback } from 'react';
 import { shallow } from 'zustand/shallow';

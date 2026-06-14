@@ -1,11 +1,5 @@
 /**
  * ValueDisplay — renders any runtime value for a non-technical user.
- *
- * The product rule (DESIGN-VISION, Problem 8): the user never sees a raw JSON string.
- * A string is text, a number is a number, an object is an expandable set of key/value
- * rows, an array is a counted list, a conversation (message[]) is a chat view, a file
- * is a file card. This component is built generic on purpose — the Output node uses it
- * now, and the inspector and global-state panel reuse it in later phases.
  */
 import { DATA_TYPE_COLORS } from '../styles/design-tokens';
 

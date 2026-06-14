@@ -1,15 +1,8 @@
 """
 Sandboxed Python code execution via subprocess.
 
-run_sandboxed() runs user code in an isolated child process with:
-  - Dangerous stdlib imports blocked (os, sys, subprocess, socket, ...)
-  - Wall-clock timeout enforced by subprocess.run(timeout=N)
-  - CPU and memory limits set via resource.setrlimit inside the child
-
-Protocol: inputs arrive as a JSON payload file (argv[1]); the result is written
-to a separate result file (argv[2]). User code's stdout is silently captured but
-not used — only the result file matters. This separation means print() in user
-code does not corrupt the sandbox protocol.
+run_sandboxed() runs user code in an isolated child process with restricted 
+imports, time limits, and resource limits.
 """
 from __future__ import annotations
 
@@ -37,8 +30,6 @@ _BLOCKED_MODULES = frozenset({
     "runpy", "zipimport", "zipapp", "_thread",
 })
 
-# This script runs inside the child subprocess. String-formatted once at call
-# time to embed the blocked-module set as a literal Python frozenset expression.
 _RUNNER_TEMPLATE = textwrap.dedent("""\
     import sys
     import json
@@ -92,9 +83,6 @@ _RUNNER_TEMPLATE = textwrap.dedent("""\
 def run_sandboxed(code: str, inputs: dict, timeout: int = 5) -> Any:
     """
     Executes `code` in an isolated subprocess with `inputs` injected as named variables.
-
-    Returns the value assigned to `result` inside the code.
-    Raises SandboxError on: timeout, blocked import, syntax error, missing result variable.
     """
     runner_src = _RUNNER_TEMPLATE.format(blocked_set=_BLOCKED_MODULES)
 

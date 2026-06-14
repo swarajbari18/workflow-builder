@@ -1,10 +1,8 @@
 """
 ScriptExecutor — runs user Python code in the sandboxed subprocess.
 
-Wired inputs (upstream node outputs) are gathered from the context and injected
-as named variables into the sandbox. The user's code must assign `result`.
-Sandbox errors are returned as an error output dict rather than raising, so the
-engine can emit a node_error event and continue or halt gracefully.
+Wired inputs are gathered from the context and injected as named variables 
+into the sandbox. The user's code must assign `result`.
 """
 from __future__ import annotations
 
@@ -32,7 +30,7 @@ class ScriptExecutor(ExecutorBase):
 def _gather_wired_inputs(node_id: str, ctx: ExecutionContext) -> dict:
     """
     Collects all edges that target this node and returns a dict of
-    {handle_id: upstream_value} suitable for sandbox variable injection.
+    {handle_id: upstream_value}.
     """
     edges = ctx.graph.get("edges", [])
     inputs = {}

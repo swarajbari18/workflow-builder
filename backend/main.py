@@ -4,7 +4,7 @@ Pipeline API — FastAPI application for the pipeline builder.
 Endpoints
 ---------
   GET  /                          — health check
-  POST /pipelines/parse           — validate graph structure, return is_dag + topo_order
+  POST /pipelines/parse           — validate graph structure
   POST /workflows                 — save a new workflow definition
   GET  /workflows                 — list all saved workflows
   GET  /workflows/{id}            — get a workflow by ID
@@ -12,27 +12,24 @@ Endpoints
   POST /workflows/{id}/runs       — create a new run for a workflow
   GET  /runs/{run_id}             — get run state
   POST /runs/{run_id}/resume      — resume a suspended run with a human response
-
-Phase 6 additions
------------------
   POST /pipelines/run             — execute a pipeline; returns run_id + stream URL
   GET  /runs/{run_id}/stream      — SSE stream of execution events for a live run
-  POST /webhook/{path}            — external webhook receiver; triggers matching saved workflow
+  POST /webhook/{path}            — external webhook receiver
   PUT  /workflows/{id}/save       — save current canvas state to an existing workflow
 
 Architecture
 ------------
 The database is injected via FastAPI's dependency system (get_db). Tests override
 get_db with an in-memory database for isolation. Production uses the file path from
-DATABASE_URL env var (defaults to './pipeline.db').
+DATABASE_URL env var.
 
-The execution engine (engine/engine.py) is launched as an asyncio.Task by the
+The execution engine is launched as an asyncio.Task by the
 /pipelines/run endpoint. The task writes execution events to an asyncio.Queue
 registered in _RUN_QUEUES keyed by run_id. The /runs/{id}/stream SSE endpoint
 drains that queue and forwards events to the browser via EventSourceResponse.
 
 CRUD endpoints remain synchronous (FastAPI threadpool). Only the streaming
-endpoints are async — this is the exact split planned in Phase 5 decisions.md.
+endpoints are async.
 """
 import asyncio
 import json
@@ -50,10 +47,6 @@ from engine.engine import execute_pipeline, EXECUTORS
 from routers.ai import router as ai_router
 
 
-# ---------------------------------------------------------------------------
-# App + CORS
-# ---------------------------------------------------------------------------
-
 app = FastAPI(title="Pipeline API")
 app.include_router(ai_router)
 
@@ -65,17 +58,13 @@ app.add_middleware(
 )
 
 
-# ---------------------------------------------------------------------------
-# Database dependency
-# ---------------------------------------------------------------------------
-
 _db: Database | None = None
 
 
 def get_db() -> Database:
     """
     Returns the singleton Database instance for the application.
-    Tests override this via app.dependency_overrides[get_db] = lambda: in_memory_db.
+    Tests override this via app.dependency_overrides.
     """
     global _db
     if _db is None:
@@ -84,10 +73,6 @@ def get_db() -> Database:
         _db.init_db()
     return _db
 
-
-# ---------------------------------------------------------------------------
-# Request / response models
-# ---------------------------------------------------------------------------
 
 class ParseRequest(BaseModel):
     nodes: list
@@ -113,16 +98,11 @@ class RunRequest(BaseModel):
     """
     Request body for POST /pipelines/run.
 
-    nodes / edges:    The full workflow graph (same format as /pipelines/parse).
-    trigger_payload:  For Webhook-triggered pipelines — the HTTP request payload
-                      that the external system sent. Injected as the Webhook node's
-                      output before execution begins.
+    nodes / edges:    The full workflow graph.
+    trigger_payload:  For Webhook-triggered pipelines — the HTTP request payload.
     reuse_outputs:    Partial execution: {node_id: cached_output_dict}.
-                      Nodes with a cache entry are skipped (cache_hit);
-                      execution starts from the first node not in this dict.
-    is_development:   True (default) = dev mode (inline input, no real webhooks).
+    is_development:   True = dev mode (inline input, no real webhooks).
     workflow_id:      Optional — if provided, the run is linked to a saved workflow.
-                      If omitted, a workflow record is created on the fly.
     """
     nodes: list
     edges: list
@@ -131,10 +111,6 @@ class RunRequest(BaseModel):
     is_development: bool = True
     workflow_id: str | None = None
 
-
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
 
 @app.get("/")
 def health():
@@ -146,9 +122,7 @@ def parse_pipeline(req: ParseRequest):
     """
     Validates the pipeline graph using semantic-aware DAG analysis.
 
-    Returns is_dag (bool), topo_order (execution order for outer graph nodes),
-    num_nodes, and num_edges. The topo_order is what the execution engine uses
-    to determine which node to run next — it is the same algorithm both endpoints share.
+    Returns is_dag, topo_order, num_nodes, and num_edges.
     """
     result = analyse_graph(req.nodes, req.edges)
     return {
@@ -193,9 +167,7 @@ def update_workflow(workflow_id: str, req: WorkflowUpdate, db: Database = Depend
 def save_workflow(workflow_id: str, req: WorkflowUpdate, db: Database = Depends(get_db)):
     """
     Convenience alias for PUT /workflows/{id}.
-    Called by the frontend "Save" button with the current canvas state.
-    Saves definition (nodes + edges) so the webhook receiver can find this workflow
-    by its webhook node's path field.
+    Saves definition so the webhook receiver can find this workflow.
     """
     updated = db.update_workflow(workflow_id, name=req.name, definition=req.definition)
     if not updated:
@@ -221,10 +193,8 @@ def get_run(run_id: str, db: Database = Depends(get_db)):
 @app.post("/runs/{run_id}/resume")
 async def resume_run(run_id: str, req: ResumeRequest, db: Database = Depends(get_db)):
     """
-    Resumes a suspended (or timed-out) run when a human provides a response.
-    Validates the callback token before accepting — invalid tokens return 403.
-    The execution engine (Phase 6) picks up the 'running' run and continues
-    execution from the Input node whose output was just populated.
+    Resumes a suspended run when a human provides a response.
+    Validates the callback token before accepting.
     """
     run = db.get_run(run_id)
     if not run:
@@ -267,13 +237,7 @@ async def resume_run(run_id: str, req: ResumeRequest, db: Database = Depends(get
     return run
 
 
-# ---------------------------------------------------------------------------
-# Phase 6 — Execution engine endpoints
-# ---------------------------------------------------------------------------
-
 # Server-side registry of live SSE queues: {run_id: asyncio.Queue}
-# Queues are created by /pipelines/run and drained by /runs/{id}/stream.
-# They are not persisted — they are ephemeral live-execution channels.
 _RUN_QUEUES: dict[str, asyncio.Queue] = {}
 
 
@@ -283,31 +247,22 @@ async def run_pipeline(req: RunRequest, db: Database = Depends(get_db)):
     Starts an asynchronous pipeline execution.
 
     Returns 202 Accepted immediately with {run_id, stream_url}.
-    The caller should then subscribe to GET /runs/{run_id}/stream for live events.
-
-    If workflow_id is provided, the run is linked to that workflow.
-    If not, a temporary workflow record is created to satisfy the FK constraint.
+    The caller should subscribe to GET /runs/{run_id}/stream for live events.
     """
-    # Resolve or create a workflow record (runs table has a FK to workflows)
     workflow_id = req.workflow_id
     if workflow_id:
         if not db.get_workflow(workflow_id):
             raise HTTPException(status_code=404, detail="Workflow not found")
     else:
-        # Ad-hoc run — create a transient workflow record
         wf = db.create_workflow("Ad-hoc run", {"nodes": req.nodes, "edges": req.edges})
         workflow_id = wf["id"]
 
-    # Create the run record
     run = db.create_run(workflow_id)
     run_id = run["id"]
 
-    # Create the SSE queue and register it BEFORE starting the task
-    # so /stream can subscribe even if the task starts instantly
     queue: asyncio.Queue = asyncio.Queue()
     _RUN_QUEUES[run_id] = queue
 
-    # Launch engine as a background task — returns immediately
     graph = {"nodes": req.nodes, "edges": req.edges}
     asyncio.create_task(
         execute_pipeline(
@@ -333,20 +288,11 @@ async def run_pipeline(req: RunRequest, db: Database = Depends(get_db)):
 async def stream_run(run_id: str, db: Database = Depends(get_db)):
     """
     SSE stream of execution events for a live run.
-
-    The client subscribes here immediately after POST /pipelines/run.
-    Events are forwarded as they arrive from the engine task.
-    The stream closes when the engine puts the sentinel (None) onto the queue.
-
-    If the run is not active (already completed or no queue registered), returns 404.
-    The client can still read final state via GET /runs/{run_id}.
     """
     run = db.get_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    # For completed runs, there is no active queue — return a stub stream
-    # with a single pipeline_completed event synthesised from the DB state.
     if run["status"] == "completed" and run_id not in _RUN_QUEUES:
         async def completed_stub():
             payload = json.dumps({
@@ -365,21 +311,17 @@ async def stream_run(run_id: str, db: Database = Depends(get_db)):
         try:
             while True:
                 try:
-                    # 30-second timeout per event — keeps the connection alive
-                    # with HTTP keep-alive even during slow nodes (like LLM calls)
                     event = await asyncio.wait_for(queue.get(), timeout=30.0)
                 except asyncio.TimeoutError:
-                    # Send a keep-alive comment to prevent proxy timeouts
                     yield {"comment": "keep-alive"}
                     continue
 
-                if event is None:  # DONE sentinel
+                if event is None:
                     break
 
                 yield {"data": json.dumps(event)}
 
         except asyncio.CancelledError:
-            # Client disconnected — clean up the queue
             pass
         finally:
             _RUN_QUEUES.pop(run_id, None)
@@ -387,62 +329,32 @@ async def stream_run(run_id: str, db: Database = Depends(get_db)):
     return EventSourceResponse(event_generator())
 
 
-# ---------------------------------------------------------------------------
-# Webhook receiver — the door external systems knock on
-# ---------------------------------------------------------------------------
-
 @app.post("/webhook/{path:path}", status_code=202)
 async def receive_webhook(path: str, request: Request, db: Database = Depends(get_db)):
     """
-    External webhook receiver.
-
-    An external system (Shopify, GitHub, your own app) sends a POST to:
-        POST https://your-server/webhook/my-order-path
-
-    This endpoint:
-      1. Looks up the saved workflow whose webhook node has data.path = /my-order-path
-      2. Reads the request body as JSON (the trigger payload)
-      3. Creates a run, starts the engine, returns {run_id, stream_url}
-
-    The path is whatever the user typed in the Webhook node's "Path" field.
-    Example: if they typed '/webhook/new-order', they give this URL to Shopify:
-        https://your-server/webhook/new-order
-
-    Curl equivalent for local testing:
-        curl -X POST http://localhost:8000/webhook/new-order \\
-             -H 'Content-Type: application/json' \\
-             -d '{"customer": "Alice", "total": 99.90}'
+    External webhook receiver. Triggers matching saved workflow.
     """
-    # Normalise: ensure leading slash for matching
     normalised_path = f"/{path}" if not path.startswith("/") else path
 
-    # Find the saved workflow with this webhook path
     wf = db.find_workflow_by_webhook_path(normalised_path)
     if not wf:
         raise HTTPException(
             status_code=404,
-            detail=(
-                f"No saved workflow found with a Webhook node configured for path '{normalised_path}'. "
-                f"Save your workflow first via PUT /workflows/{{id}} with the current nodes and edges."
-            ),
+            detail=f"No saved workflow found with a Webhook node configured for path '{normalised_path}'."
         )
 
-    # Parse the incoming payload — accept JSON, fall back to empty dict
     try:
         trigger_payload = await request.json()
     except Exception:
         trigger_payload = {}
 
-    # Resolve graph from the saved definition
     definition = wf.get("definition", {})
     nodes = definition.get("nodes", [])
     edges = definition.get("edges", [])
 
-    # Create the run record linked to the saved workflow
     run = db.create_run(wf["id"])
     run_id = run["id"]
 
-    # Register SSE queue and start engine
     queue: asyncio.Queue = asyncio.Queue()
     _RUN_QUEUES[run_id] = queue
 
@@ -454,7 +366,7 @@ async def receive_webhook(path: str, request: Request, db: Database = Depends(ge
             sse_queue=queue,
             trigger_payload=trigger_payload,
             reuse_outputs={},
-            is_development=False,  # Real external trigger — not dev mode
+            is_development=False,
         ),
         name=f"engine-{run_id}",
     )

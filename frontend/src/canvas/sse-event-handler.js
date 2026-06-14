@@ -1,15 +1,11 @@
 /**
- * SSE event handler — pure function mapping backend events to store state patches.
+ * SSE event handler — mapping backend events to store state patches.
  *
- * No side effects, no React, no DOM. Tested in isolation against every event type
- * from the Phase 6 SSE schema. The store's runPipeline() calls this on each message
- * and applies the returned patch via setState().
+ * No side effects, no React, no DOM. 
  *
- * Returns null when the event requires no state update (unknown types, etc.).
- *
- * @param {Object} event  - Parsed SSE event from the backend
- * @param {Object} state  - Current store snapshot (read-only)
- * @returns {Object|null} - Partial state to merge, or null
+ * @param {Object} event  - Parsed SSE event
+ * @param {Object} state  - Current store snapshot
+ * @returns {Object|null} - Partial state to merge
  */
 export function handleSseEvent(event, state) {
   switch (event.type) {

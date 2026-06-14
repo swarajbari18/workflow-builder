@@ -1,13 +1,10 @@
 /**
- * GlobalStatePanel — a 320px slide-in from the right showing the full run context.
+ * GlobalStatePanel — slide-in from the right showing the full run context.
  *
  * Three sections:
- *   1. Conversation — message[] from globalState.messages as a chat view
- *   2. Node Outputs — collapsible row per completed node in nodeOutputCache
- *   3. Variables — key/value pairs from globalState.variables
- *
- * Real Liquid Glass material (static, appears once). Triggered by the ◉ button
- * in the dock. Updates in real time as SSE events arrive during a run.
+ *   1. Conversation — chat view of globalState.messages
+ *   2. Node Outputs — results from nodeOutputCache
+ *   3. Variables — globalState.variables
  */
 import { useState } from 'react';
 import { shallow } from 'zustand/shallow';

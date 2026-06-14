@@ -1,15 +1,10 @@
 /**
- * ContextMenu — a single absolute-positioned Liquid Glass menu rendered for
- * right-click events on four surfaces: canvas pane, node, edge, and handle.
+ * ContextMenu — floating menu for right-click events on the canvas.
  *
- * Only one menu is open at a time (enforced by the store). Closes on Escape
- * keydown (attached to document) or when the store's contextMenu becomes null.
- *
- * Surface → items mapping:
- *   pane   — Add node (opens command palette at cursor position)
- *   node   — Rename, Duplicate, Delete
- *   edge   — Type badge + last value from run (read-only info)
- *   handle — "What can connect here?" list of compatible node types (Phase 4+)
+ * Surface actions:
+ *   pane   — Add node
+ *   node   — Inspect, Test, Run from here, Duplicate, Delete
+ *   edge   — Type information
  */
 import { useEffect, useCallback } from 'react';
 import { shallow } from 'zustand/shallow';

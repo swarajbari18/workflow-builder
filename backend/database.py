@@ -1,15 +1,14 @@
 """
 SQLite persistence layer — workflows and runs.
 
-Implements the two-table schema from DESIGN-VISION.md Decision 5:
-
+Implements the two-table schema:
   workflows (id, name, definition JSON, created_at, updated_at)
   runs      (id, workflow_id, status, current_node_id, node_outputs JSON,
              global_state JSON, suspension_context JSON, callback_token,
              created_at, suspended_at, completed_at, error JSON)
 
 Design choices:
-  - Raw sqlite3 stdlib — no ORM, per Decision 5.
+  - Raw sqlite3 stdlib — no ORM.
   - threading.local(): ensures each thread gets its own persistent connection
     to the same SQLite file.
   - JSON columns stored as TEXT; Python dicts serialised to/from JSON at the
@@ -17,8 +16,8 @@ Design choices:
   - The Database class owns one connection (per thread).
   - ':memory:' is accepted as db_path for test isolation (one per test, no cleanup).
 
-The execution engine (Phase 6) calls update_run() after every node completes —
-this is the checkpoint-per-step pattern described in DESIGN-VISION.md Decision 5.
+The execution engine calls update_run() after every node completes —
+this is the checkpoint-per-step pattern.
 """
 from __future__ import annotations
 import json
@@ -147,10 +146,6 @@ class Database:
             self._local.conn.close()
             del self._local.conn
 
-    # ------------------------------------------------------------------
-    # Workflows
-    # ------------------------------------------------------------------
-
     def create_workflow(self, name: str, definition: dict) -> dict:
         wf_id = str(uuid.uuid4())
         now = _now_iso()
@@ -201,8 +196,7 @@ class Database:
         Used by POST /webhook/{path} to resolve which workflow to execute
         when an external system fires a webhook at our server.
 
-        This is a linear scan — fine for dozens of workflows (typical product use).
-        If the user has thousands of workflows, add a denormalised index column.
+        This is a linear scan — fine for dozens of workflows.
         """
         rows = self._execute("SELECT * FROM workflows").fetchall()
         for row in rows:
@@ -211,14 +205,9 @@ class Database:
             for node in nodes:
                 if node.get("type") == "webhook":
                     node_path = node.get("data", {}).get("path", "")
-                    # Normalise: strip trailing slashes, compare case-insensitively
                     if node_path.rstrip("/").lower() == path.rstrip("/").lower():
                         return wf
         return None
-
-    # ------------------------------------------------------------------
-    # Runs
-    # ------------------------------------------------------------------
 
     def create_run(self, workflow_id: str) -> dict:
         run_id = str(uuid.uuid4())
@@ -273,7 +262,6 @@ class Database:
 
 
 if __name__ == "__main__":
-    # Smoke block: create tables, insert a workflow, create a run, update it.
     db = Database(":memory:")
     db.init_db()
 

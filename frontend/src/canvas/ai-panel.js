@@ -1,12 +1,8 @@
 /**
  * AiPanel — conversational code-gen panel for aiAssisted fields.
  *
- * Positioned left of the inspector (right: 352px) as a fixed floating panel.
+ * Positioned left of the inspector as a fixed floating panel.
  * Opens when the user clicks the ✦ spark button on any aiAssisted field.
- *
- * Explanation-first principle (DESIGN-VISION.md): the AI always shows its
- * reasoning before the code. Code is evidence, not the message. The "Use this"
- * button writes generatedCode and aiExplanation onto the node and closes the panel.
  */
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { shallow } from 'zustand/shallow';

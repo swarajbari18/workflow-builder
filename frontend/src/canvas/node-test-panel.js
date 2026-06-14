@@ -1,14 +1,7 @@
 /**
  * NodeTestPanel — inject mock inputs into a single node and see the result.
- *
- * Forward-looking: tests what WILL happen, not what happened in the last run.
+ * Forward-looking: tests what WILL happen.
  * Opens from right-click → "Test this node."
- *
- * Each target handle becomes a structured input field appropriate for its dataType.
- * The result is labelled "Test result — not saved to run state" to make the
- * distinction from a real run explicit.
- *
- * Positioned as a fixed panel on the left (to not conflict with the inspection card).
  */
 import { useState } from 'react';
 import { shallow } from 'zustand/shallow';
@@ -129,7 +122,6 @@ function MockInput({ handle, value, onChange }) {
     );
   }
 
-  // Default: textarea for string, json, array, message[], any
   return (
     <textarea
       rows={3}
@@ -173,7 +165,6 @@ export function NodeTestPanel() {
     setLoading(true);
     setResult(null);
 
-    // Parse JSON inputs before sending
     const parsed = {};
     for (const [handleId, value] of Object.entries(mockInputs)) {
       const handle = targetHandles.find((h) => h.id === handleId);

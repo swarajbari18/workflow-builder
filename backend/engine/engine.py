@@ -54,11 +54,8 @@ from engine.executors.http_request import HTTPExecutor
 from engine.executors.script import ScriptExecutor
 
 
-# ---------------------------------------------------------------------------
 # Executor registry — the sole join point between frontend and backend.
 # Key = execution.kind string from nodeSpecs.js.
-# ---------------------------------------------------------------------------
-
 EXECUTORS: dict[str, type[ExecutorBase]] = {
     "suspend":      InputExecutor,
     "emit":         EmitExecutor,
@@ -77,10 +74,6 @@ LoopExecutor.executor_registry = EXECUTORS
 # Sentinel value placed on the SSE queue when the engine terminates
 _DONE_SENTINEL = None
 
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 def _find_node(nodes: list[dict], node_id: str) -> dict | None:
     for n in nodes:
@@ -112,10 +105,6 @@ async def _db_write(db: Database, run_id: str, fields: dict) -> None:
     await asyncio.to_thread(db.update_run, run_id, fields)
 
 
-# ---------------------------------------------------------------------------
-# Main engine
-# ---------------------------------------------------------------------------
-
 async def execute_pipeline(
     run: dict,
     graph: dict,
@@ -146,9 +135,6 @@ async def execute_pipeline(
     run_id = run["id"]
 
     try:
-        # ------------------------------------------------------------------
-        # 1. Validate and sort the graph
-        # ------------------------------------------------------------------
         analysis = analyse_graph(nodes, edges)
         if not analysis.is_dag:
             await sse_queue.put(execution_error(
@@ -156,24 +142,15 @@ async def execute_pipeline(
             ))
             return
 
-        topo_order = analysis.topo_order  # outer nodes only
+        topo_order = analysis.topo_order
         subgraph_members = set(analysis.subgraph_members)
 
-        # ------------------------------------------------------------------
-        # 2. Transition run to 'running' and write to DB
-        # ------------------------------------------------------------------
         if run["status"] != "running":
             run = transition_to_running(run)
             await _db_write(db, run_id, {"status": "running"})
 
-        # ------------------------------------------------------------------
-        # 3. Build execution context
-        # ------------------------------------------------------------------
-        # Merge reuse_outputs (from partial execution) into starting node_outputs.
-        # Trigger payload is pre-seeded for webhook nodes.
         initial_outputs: dict = dict(reuse_outputs or {})
 
-        # Inject webhook payload into the trigger node's output slot
         if trigger_payload:
             trigger_nodes = [n for n in nodes if n.get("type") in ("webhook", "customInput")]
             for tn in trigger_nodes:
@@ -196,25 +173,19 @@ async def execute_pipeline(
 
         pipeline_start = time.monotonic()
 
-        # ------------------------------------------------------------------
-        # 4. Execute nodes in topological order
-        # ------------------------------------------------------------------
         for node_id in topo_order:
             node = _find_node(nodes, node_id)
             if node is None:
-                continue  # ghost node ID — shouldn't happen, defensive skip
+                continue
 
-            # Skip: cached (partial execution)
             if node_id in ctx.completed_nodes and node_id in ctx.node_outputs:
                 await ctx.emit(node_skipped(node_id, reason="cache_hit"))
                 continue
 
-            # Skip: inactive branch (Condition executor marked this)
             if node_id in ctx.skipped_nodes:
                 await ctx.emit(node_skipped(node_id, reason="branch_inactive"))
                 continue
 
-            # Dispatch to the correct executor
             kind = _get_execution_kind(node)
             executor_cls = EXECUTORS.get(kind)
 
@@ -228,7 +199,6 @@ async def execute_pipeline(
                 await _db_write(db, run_id, {"status": "error", "error": run["error"]})
                 return
 
-            # Execute
             node_start = time.monotonic()
             await ctx.emit(node_started(node_id))
 
@@ -236,7 +206,6 @@ async def execute_pipeline(
                 output = await executor_cls().execute(node, ctx)
 
             except SuspendExecution as suspend:
-                # Input node reached — save state and halt
                 suspension_ctx = {
                     "node_id": suspend.node_id,
                     "prompt": suspend.prompt,
@@ -255,8 +224,6 @@ async def execute_pipeline(
                     "node_outputs": ctx.node_outputs,
                     "global_state": ctx.global_state,
                 })
-                # Do not put sentinel — the run is suspended, not done.
-                # The SSE stream will close when the client sees execution_suspended.
                 return
 
             except Exception as exc:
@@ -273,28 +240,22 @@ async def execute_pipeline(
                 })
                 return
 
-            # Node succeeded — checkpoint
             duration = time.monotonic() - node_start
             ctx.node_outputs[node_id] = output
             ctx.completed_nodes.add(node_id)
 
             await ctx.emit(node_completed(node_id, duration))
 
-            # Emit the node's primary output (for the frontend's data inspector)
             primary_value = output.get("value", output.get("output", output.get("response")))
             data_type = output.get("dataType", "any")
             await ctx.emit(node_output(node_id, primary_value, data_type))
 
-            # Checkpoint to DB after every node
             await _db_write(db, run_id, {
                 "current_node_id": node_id,
                 "node_outputs": ctx.node_outputs,
                 "global_state": ctx.global_state,
             })
 
-        # ------------------------------------------------------------------
-        # 5. All nodes processed — complete the run
-        # ------------------------------------------------------------------
         pipeline_duration = time.monotonic() - pipeline_start
         run = transition_to_completed(run, ctx.node_outputs)
         await _db_write(db, run_id, {
@@ -306,13 +267,12 @@ async def execute_pipeline(
         await ctx.emit(pipeline_completed(ctx.node_outputs, pipeline_duration))
 
     except asyncio.CancelledError:
-        # SSE client disconnected — mark the run as error (execution was cut short)
         try:
             run = transition_to_error(run, {"message": "Execution cancelled — client disconnected"})
             await asyncio.to_thread(db.update_run, run_id, {"status": "error", "error": run["error"]})
         except (RunStateError, Exception):
-            pass  # run may already be in a terminal state
-        raise  # re-raise so the Task is properly cancelled
+            pass
+        raise
 
     except Exception as e:
         err_msg = f"Internal Engine Error: {str(e)}"
@@ -324,7 +284,6 @@ async def execute_pipeline(
             pass
 
     finally:
-        # Always signal the SSE stream that we're done, whether success or failure
         await sse_queue.put(_DONE_SENTINEL)
 
 

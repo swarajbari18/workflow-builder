@@ -1,13 +1,7 @@
 /**
- * FieldControl — renders one editable control for a single NodeSpec field, by kind.
+ * FieldControl — renders one editable control for a single NodeSpec field.
  *
- * This is the inspector's building block. Each `field.kind` maps to one control:
- * text/number/textarea/select/checkbox are editable; `code` and `info` are read-only
- * displays (the user works in English, never edits generated code); `params` is a
- * structured row editor for API function parameters (no raw JSON).
- *
- * Controls are uncontrolled-of-the-store: they read `value` and report changes via
- * `onChange(newValue)`. The inspector owns the wiring to the store.
+ * Building block for the inspector. Maps field kinds to specific input components.
  */
 import { useId, useRef, useEffect } from 'react';
 
@@ -152,7 +146,6 @@ const aiSparkBtnStyle = {
 export function FieldControl({ field, value, onChange, onAiAssist }) {
   const id = useId();
 
-  // Hooks must come before any conditional return (React rules of hooks).
   const textareaRef = useRef(null);
   useEffect(() => {
     if (field.kind !== 'textarea' || !textareaRef.current) return;
@@ -237,7 +230,6 @@ export function FieldControl({ field, value, onChange, onAiAssist }) {
           value={value ?? ''}
           onChange={(e) => {
             onChange(e.target.value);
-            // Immediately grow on input so there is no flash of a scrollbar.
             e.target.style.height = 'auto';
             e.target.style.height = `${e.target.scrollHeight}px`;
           }}

@@ -1,8 +1,7 @@
 """
 Run state machine — pure transition functions.
 
-Implements the state diagram from DESIGN-VISION.md Decision 4:
-
+Implements the state diagram:
   created
     ↓ (execution starts)
   running
@@ -20,11 +19,9 @@ Any transition function raises RunStateError for invalid transitions so callers
 can surface the right HTTP error (409 Conflict) without checking state themselves.
 
 All functions accept a run dict and return a NEW run dict — never mutating the
-input. The caller (database.py) persists the returned dict.
+input. The caller persists the returned dict.
 
-These functions have no I/O. Tests call them directly without HTTP or DB setup.
-Phase 6's execution engine calls transition_to_suspended, transition_to_completed,
-and transition_to_error as nodes complete.
+These functions have no I/O.
 """
 from __future__ import annotations
 import uuid
@@ -162,7 +159,6 @@ def resume_from_suspended(run: dict, value: str, callback_token: str) -> dict:
 
 
 if __name__ == "__main__":
-    # Smoke block — run through a full suspend/resume cycle.
     run = create_run("wf-smoke-1")
     print(f"created:   {run['status']} id={run['id']}")
 
@@ -188,7 +184,6 @@ if __name__ == "__main__":
     run = transition_to_completed(run, {**run["node_outputs"], "output-1": {"value": "done"}})
     print(f"completed: {run['status']} at={run['completed_at']}")
 
-    # Verify terminal state blocks further transitions
     try:
         transition_to_running(run)
     except RunStateError as e:

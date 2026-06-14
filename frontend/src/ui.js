@@ -1,9 +1,9 @@
 /**
- * PipelineUI — the React Flow canvas with all Phase 3 interaction systems wired in:
- *   - Dock (bottom) replaces the toolbar
+ * PipelineUI — the React Flow canvas with all interaction systems wired in:
+ *   - Dock (bottom)
  *   - CommandPalette (Ctrl/Cmd+K or wire-drop triggered)
  *   - ContextMenu (right-click on node, edge, or canvas)
- *   - Connection mode (dims canvas + highlights compatible nodes while dragging a wire)
+ *   - Connection mode (dims canvas + highlights compatible nodes)
  *   - GhostWorkflow (semi-transparent example shown on first open)
  */
 import { useEffect, useRef, useCallback } from 'react';
@@ -46,7 +46,6 @@ const selector = (state) => ({
   closeContextMenu: state.closeContextMenu,
   openInspector:    state.openInspector,
   closeInspector:   state.closeInspector,
-  // Phase 8 panel visibility
   statePanelOpen:   state.statePanelOpen,
   inspectedNodeId:  state.inspectedNodeId,
   testPanelNodeId:  state.testPanelNodeId,
@@ -79,7 +78,6 @@ export const PipelineUI = () => {
     statePanelOpen, inspectedNodeId, testPanelNodeId,
   } = useStore(selector, shallow);
 
-  // Ctrl/Cmd+K → open command palette
   useEffect(() => {
     const onKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -91,7 +89,6 @@ export const PipelineUI = () => {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [openPalette]);
 
-  // Drag-drop from Dock (legacy .project() → .screenToFlowPosition())
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
@@ -116,8 +113,6 @@ export const PipelineUI = () => {
         type: nodeType,
         position,
         data: buildInitialData(nodeId, nodeType),
-        // Ensure width/height are initialized if the spec or CSS defines them
-        // to avoid layout shifts when handles appear.
       });
     },
     [rfInstance, getNodeID, addNode],
@@ -128,7 +123,6 @@ export const PipelineUI = () => {
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
-  // Connection mode — dims canvas and highlights compatible nodes
   const onConnectStart = useCallback(
     (_, { nodeId, handleId, handleType }) => {
       if (handleType !== 'source') return;
@@ -144,7 +138,6 @@ export const PipelineUI = () => {
     (event) => {
       endConnection();
 
-      // If the wire was dropped on empty canvas (not onto a node handle), open palette
       if (!event.target?.closest('.react-flow__handle')) {
         const instance = rfInstance ?? useStore.getState().rfInstance;
         const pos = instance?.screenToFlowPosition
@@ -157,7 +150,6 @@ export const PipelineUI = () => {
     [endConnection, rfInstance, openPalette],
   );
 
-  // Context menus
   const onNodeContextMenu = useCallback(
     (event, node) => {
       event.preventDefault();
@@ -185,13 +177,11 @@ export const PipelineUI = () => {
     [openContextMenu, closeContextMenu],
   );
 
-  // Selecting a node opens the inspector for it
   const onNodeClick = useCallback(
     (_, node) => openInspector(node.id),
     [openInspector],
   );
 
-  // Click on empty canvas dismisses the context menu and the inspector
   const onPaneClick = useCallback(() => {
     closeContextMenu();
     closeInspector();
@@ -245,16 +235,13 @@ export const PipelineUI = () => {
         <GhostWorkflow />
       </ReactFlow>
 
-      {/* Overlays above the canvas */}
       <Dock />
       <CommandPalette />
       <ContextMenu />
       <Inspector />
-      {/* Phase 8 — Execution UX panels (reactive via store selectors) */}
       {statePanelOpen && <GlobalStatePanel />}
       {inspectedNodeId && <NodeInspectionCard />}
       {testPanelNodeId && <NodeTestPanel />}
-      {/* Suspension modal — dev mode inline input gate */}
       <SuspensionModal />
     </div>
   );

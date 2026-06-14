@@ -1,17 +1,16 @@
 /**
  * Dock — the macOS-style bottom bar for discovering and adding nodes.
  *
- * Discoverability: the dock is pinned open while the canvas is empty (a first-time user
- * must see how to add a node). Once the first node exists it switches to auto-hide —
- * sliding down to a thin strip and springing back when the cursor nears the bottom edge.
+ * Architecture
+ * ------------
+ * Discoverability: the dock is pinned open while the canvas is empty. Once the first 
+ * node exists it switches to auto-hide.
  *
- * Each category shows an icon AND a label (the Apple-dock pattern); hovering a category
- * opens a tray of node cards, each with a category-coloured icon tile, the node name, and
- * a one-line description. Real Liquid Glass material (static, single instance).
+ * Each category shows an icon AND a label; hovering a category opens a tray of node 
+ * cards. Real Liquid Glass material.
  *
- * The DAG status indicator lives in the action cluster (right of the separator). It is
- * stateful: pristine ◌ → pending (dimmed ◌) → valid ✓ or invalid ✕. Clicking it calls
- * submitPipeline. Any graph change resets it to pristine.
+ * The DAG status indicator lives in the action cluster. It is stateful: 
+ * pristine ◌ → pending → valid ✓ or invalid ✕.
  */
 import { useState, useCallback, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
@@ -46,11 +45,13 @@ const NODE_DESCRIPTIONS = {
 
 /**
  * Visual configuration for each dagStatus value.
- * icon: the glyph rendered in the button
- * color: text/icon colour
- * title: tooltip text
- * className: optional CSS class for entry animation
- * disabled: prevents re-clicking while in flight
+ *
+ * @typedef {Object} DagStatusConfig
+ * @property {string} icon - glyph rendered in the button
+ * @property {string} color - text/icon colour
+ * @property {string} title - tooltip text
+ * @property {string} className - optional CSS class for entry animation
+ * @property {boolean} disabled - prevents re-clicking while in flight
  */
 const DAG_STATUS_CONFIG = {
   pristine: {
@@ -279,7 +280,6 @@ function DagStatusButton({ dagStatus, onSubmit }) {
         color: cfg.color,
         opacity: dagStatus === 'pending' ? 0.5 : 1,
         cursor: cfg.disabled ? 'wait' : 'pointer',
-        // invalid fades in quietly — no abrupt snap
         transition: 'color 180ms ease, opacity 180ms ease',
       }}
       title={cfg.title}
@@ -361,7 +361,6 @@ export function Dock() {
 
   return (
     <>
-      {/* Sentinel strip that triggers dock reveal when cursor is near the bottom edge */}
       <div
         data-testid="dock-sentinel"
         style={{

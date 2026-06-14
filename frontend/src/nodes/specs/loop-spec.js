@@ -1,7 +1,4 @@
 /**
- * The loop body executes as an internal sub-pipeline (a "black box"): nodes
- * connected to the `item` handle run inside the executor per iteration, so the
- * surrounding graph stays acyclic and the DAG check is unaffected.
  * @type {import('../nodeSpecs').NodeSpec}
  */
 const loopSpec = {

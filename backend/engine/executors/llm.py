@@ -5,11 +5,8 @@ Input resolution order:
   system prompt: wired "system" handle → node data "systemPrompt" field → None
   user prompt:   wired "prompt" handle → node data "promptTemplate" field → error
 
-Each streaming chunk is emitted as a token event so the frontend can render
-the typewriter effect in real time. The full accumulated text is returned as
-the executor output after the stream completes.
-
-Requires GEMINI_API_KEY in the environment (load via .env before starting).
+Each streaming chunk is emitted as a token event.
+The full accumulated text is returned as the executor output.
 """
 from __future__ import annotations
 
@@ -27,7 +24,6 @@ _DEFAULT_MODEL = "gemini-2.5-flash"
 
 class LLMExecutor(ExecutorBase):
     async def execute(self, node: dict, ctx: ExecutionContext) -> dict:
-        # Source .env if exists (defensive if not already loaded by main)
         try:
             from dotenv import load_dotenv
             load_dotenv()

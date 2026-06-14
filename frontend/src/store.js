@@ -2,21 +2,13 @@
  * Pipeline store — central state for nodes, edges, and canvas interaction.
  *
  * Core systems:
- *   - Connection mode: tracks what the user is dragging and from where.
- *   - Command palette: open/close with optional data-type filter for wire drops.
- *   - Context menu: one menu at a time, typed by the surface it was opened on.
- *   - DAG status: 'pristine' | 'pending' | 'valid' | 'invalid'.
- *   - nodeRoles: per-node categorisation from the last parse result.
- *
- * Phase 8 additions:
- *   - nodeOutputCache: per-node run output, inputs, timing, errors — persists
- *     across the session for inspection and partial re-execution.
- *   - globalState: conversation history + variables from the last completed run.
- *   - staleNodeIds: nodes whose config changed since the last run.
- *   - statePanelOpen: whether the Global State slide-in panel is visible.
- *   - inspectedNodeId: which node's inspection card is open (null = closed).
- *   - testPanelNodeId: which node's test panel is open (null = closed).
- *   - suspendedRun: context for the inline Input node suspension UI.
+ *   - Connection mode: tracks dragging state.
+ *   - Command palette: node search and placement.
+ *   - Context menu: surface-specific actions.
+ *   - DAG status: validation results.
+ *   - nodeRoles: per-node categorisation from analysis.
+ *   - nodeOutputCache: execution results for inspection.
+ *   - globalState: run variables and history.
  */
 import { create } from "zustand";
 import {
@@ -30,13 +22,10 @@ import { getStaleNodeIds } from './canvas/stale-propagation';
 
 const BACKEND_URL = 'http://localhost:8000';
 
-// Module-level so it never triggers re-renders and clearTimeout works across calls.
 let _highlightTimer = null;
 
 /**
- * Opens an EventSource to the run's SSE stream and applies state patches
- * from handleSseEvent on every message. Handles the pipeline lifecycle
- * (completed, error) with auto-reset and cleans up the source on close.
+ * Subscribes to run events via SSE.
  */
 function _subscribeToRunStream(streamUrl, get, set) {
   const evtSource = new EventSource(streamUrl);
@@ -49,7 +38,6 @@ function _subscribeToRunStream(streamUrl, get, set) {
     const patch = handleSseEvent(event, state);
     if (patch) set(patch);
 
-    // Webhook node: inject emitted output as receivedPayload for the field picker.
     if (event.type === 'node_output') {
       const node = get().nodes.find((n) => n.id === event.nodeId);
       if (node?.type === 'webhook' && event.output && typeof event.output === 'object') {
@@ -113,9 +101,6 @@ function _scheduleHighlightClear(set) {
 export const useStore = create((set, get) => ({
     nodes: [],
     edges: [],
-
-    // React Flow instance — set via onInit in ui.js so dock/palette can call
-    // screenToFlowPosition when placing nodes without a drag event.
     rfInstance: null,
     setRFInstance: (instance) => set({ rfInstance: instance }),
 
@@ -151,26 +136,20 @@ export const useStore = create((set, get) => ({
       );
       const dataType = sourceHandle?.dataType ?? 'any';
 
-      // Adding an edge may create a cycle — reset before the user re-submits.
       if (get().dagStatus !== 'pristine') _clearHighlight(set);
 
       set({
         edges: addEdge({ ...connection, type: 'typed', data: { dataType } }, get().edges),
       });
     },
-    // Returns a new node object (rather than mutating in place) so React Flow
-    // reliably detects the data change and re-renders the affected node.
     updateNodeField: (nodeId, fieldName, fieldValue) => {
       const { nodes, edges, staleNodeIds } = get();
 
-      // Config changes make this node and all downstream nodes stale.
-      // Internal state fields (executionState, displayState) don't trigger staleness.
       const internalFields = new Set(['executionState', 'receivedPayload', 'payloadFields', 'testMode', 'samplePayload']);
       const nextStale = internalFields.has(fieldName)
         ? staleNodeIds
         : new Set([...staleNodeIds, ...getStaleNodeIds(nodeId, nodes, edges)]);
 
-      // Apply stale executionState to all newly stale nodes.
       const updatedNodes = nodes.map((node) => {
         if (node.id === nodeId) {
           return { ...node, data: { ...node.data, [fieldName]: fieldValue, executionState: nextStale.has(nodeId) ? 'stale' : node.data.executionState } };
@@ -182,13 +161,8 @@ export const useStore = create((set, get) => ({
       });
 
       set({ nodes: updatedNodes, staleNodeIds: nextStale });
-      // Deliberately does NOT reset dagStatus — field values do not affect
-      // graph topology, so the DAG result is still valid for the current structure.
     },
 
-    // Bulk update of multiple data fields at once.
-    // Used by the SSE consumer to inject receivedPayload into a webhook node after
-    // a test run, without triggering multiple re-renders.
     updateNodeData: (nodeId, dataUpdates) => {
       set({
         nodes: get().nodes.map((node) =>
@@ -199,64 +173,39 @@ export const useStore = create((set, get) => ({
       });
     },
 
-    // ------------------------------------------------------------------
-    // Pipeline execution — the live run system
-    // ------------------------------------------------------------------
-
-    // null = no run active; string = run_id of the active run
     activeRunId: null,
-    // 'idle' | 'running' | 'completed' | 'error'
     runStatus: 'idle',
-
-    // Per-node run data: output, dataType, timing, error, streaming text, loop progress.
-    // Persists for the session so inspection cards and partial re-runs work.
     nodeOutputCache: {},
-
-    // Conversation history + variables from the last completed run.
     globalState: { messages: [], variables: {} },
-
-    // Node IDs whose config has changed since the last run (stale tracking).
     staleNodeIds: new Set(),
 
-    // Global State Panel — right-side slide-in.
     statePanelOpen: false,
     openStatePanel: () => set({ statePanelOpen: true }),
     closeStatePanel: () => set({ statePanelOpen: false }),
     toggleStatePanel: () => set((s) => ({ statePanelOpen: !s.statePanelOpen })),
 
-    // Node Inspection Card — shows past-run data for one node.
     inspectedNodeId: null,
     openInspectionCard: (nodeId) => set({ inspectedNodeId: nodeId }),
     closeInspectionCard: () => set({ inspectedNodeId: null }),
 
-    // Node Testing Panel — inject mock inputs and run in isolation.
     testPanelNodeId: null,
     openTestPanel: (nodeId) => set({ testPanelNodeId: nodeId }),
     closeTestPanel: () => set({ testPanelNodeId: null }),
 
-    // Suspended run context — for the inline Input node suspension UI.
-    // { runId, nodeId, prompt } — null when no run is suspended.
     suspendedRun: null,
 
     /**
-     * Opens an SSE stream and drives all node visual states from the events.
-     * Uses handleSseEvent (pure) for all state transitions; handles side effects
-     * (setTimeout, evtSource.close) here.
-     *
-     * @param {Object} options
-     * @param {Object} [options.reuse_outputs] - Cached outputs for partial re-run.
+     * Executes the full pipeline.
      */
     runPipeline: async ({ reuse_outputs } = {}) => {
       const { nodes, edges } = get();
 
-      // Derive the trigger payload from a webhook node in test mode.
       let triggerPayload = {};
       const webhookNode = nodes.find((n) => n.type === 'webhook' && n.data.testMode === true);
       if (webhookNode?.data?.samplePayload) {
-        try { triggerPayload = JSON.parse(webhookNode.data.samplePayload); } catch { /* use {} */ }
+        try { triggerPayload = JSON.parse(webhookNode.data.samplePayload); } catch { }
       }
 
-      // Reset all nodes to idle, clear caches, clear stale set
       set({
         nodes: nodes.map((n) => ({
           ...n,
@@ -300,16 +249,12 @@ export const useStore = create((set, get) => ({
     },
 
     /**
-     * Runs only the stale nodes and their downstream, reusing cached outputs
-     * for fresh upstream nodes.
-     *
-     * @param {string} fromNodeId - The node the user right-clicked "Run from here" on.
+     * Re-runs the pipeline starting from a specific node, reusing previous results.
      */
     runFromNode: async (fromNodeId) => {
       const { nodes, nodeOutputCache, staleNodeIds } = get();
       const stale = staleNodeIds.size > 0 ? staleNodeIds : getStaleNodeIds(fromNodeId, nodes, get().edges);
 
-      // Build reuse_outputs from cached outputs of nodes that are NOT stale.
       const reuseOutputs = {};
       for (const [nodeId, cached] of Object.entries(nodeOutputCache)) {
         if (!stale.has(nodeId) && cached.output !== undefined) {
@@ -321,23 +266,14 @@ export const useStore = create((set, get) => ({
     },
 
     /**
-     * Runs a single node in isolation with mock inputs.
-     * Sends a synthetic single-node graph with the mock values as reuse_outputs
-     * for virtual "upstream" nodes.
-     *
-     * @param {string} nodeId
-     * @param {Object} mockInputs - { handleId: value, ... }
-     * @returns {Object} - { output, dataType, error }
+     * Tests a single node with mock inputs.
      */
     runNodeTest: async (nodeId, mockInputs) => {
       const { nodes, edges } = get();
       const node = nodes.find((n) => n.id === nodeId);
       if (!node) return { error: { message: 'Node not found' } };
 
-      // Build a synthetic graph: just this node
       const syntheticNodes = [node];
-
-      // For each mock input, create a fake source node + edge
       const syntheticEdges = [];
       const syntheticReuse = {};
       for (const [handleId, value] of Object.entries(mockInputs)) {
@@ -369,7 +305,6 @@ export const useStore = create((set, get) => ({
         if (!r.ok) return { error: { message: `HTTP ${r.status}` } };
         const { run_id, stream_url } = await r.json();
 
-        // Read the SSE stream to completion and return the test node's output.
         return new Promise((resolve) => {
           let result = {};
           const evtSource = new EventSource(`${BACKEND_URL}${stream_url}`);
@@ -398,10 +333,7 @@ export const useStore = create((set, get) => ({
     },
 
     /**
-     * Resumes a suspended run with the user's inline response.
-     * Fetches the callback_token from the DB, calls /resume, then re-subscribes.
-     *
-     * @param {string} value - The human's response text.
+     * Resumes a suspended run.
      */
     resumeRun: async (value) => {
       const { suspendedRun, nodes, edges } = get();
@@ -410,14 +342,12 @@ export const useStore = create((set, get) => ({
       const { runId, nodeId } = suspendedRun;
 
       try {
-        // Fetch the callback_token from the DB (not in the SSE event).
         const runRes = await fetch(`${BACKEND_URL}/runs/${runId}`);
         if (!runRes.ok) { set({ runStatus: 'error' }); return; }
         const runData = await runRes.json();
         const callbackToken = runData.suspension_context?.callback_token;
         if (!callbackToken) { set({ runStatus: 'error' }); return; }
 
-        // Call the resume endpoint — writes the value to node_outputs and restarts the engine.
         const resumeRes = await fetch(`${BACKEND_URL}/runs/${runId}/resume`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -425,7 +355,6 @@ export const useStore = create((set, get) => ({
         });
         if (!resumeRes.ok) { set({ runStatus: 'error' }); return; }
 
-        // Re-subscribe to the SSE stream for the resumed execution.
         set({
           runStatus: 'running',
           suspendedRun: null,
@@ -469,13 +398,11 @@ export const useStore = create((set, get) => ({
       set({ nodes: [...get().nodes, copy] });
     },
 
-    // Connection mode — active while the user is dragging a wire.
     connectionMode: null,
     startConnection: (sourceNodeId, sourceHandleId, sourceDataType) =>
       set({ connectionMode: { sourceNodeId, sourceHandleId, sourceDataType } }),
     endConnection: () => set({ connectionMode: null }),
 
-    // Command palette — opened by Ctrl+K or wire drop on empty canvas.
     paletteOpen: false,
     paletteFilter: null,
     paletteDropPos: null,
@@ -484,20 +411,15 @@ export const useStore = create((set, get) => ({
     closePalette: () =>
       set({ paletteOpen: false, paletteFilter: null, paletteDropPos: null }),
 
-    // Context menu — one at a time, keyed by surface type.
     contextMenu: null,
     openContextMenu: (type, x, y, target) =>
       set({ contextMenu: { type, x, y, target } }),
     closeContextMenu: () => set({ contextMenu: null }),
 
-    // Inspector — the floating config panel; holds the id of the node being edited.
     inspectorNodeId: null,
     openInspector: (nodeId) => set({ inspectorNodeId: nodeId }),
     closeInspector: () => set({ inspectorNodeId: null }),
 
-    // AI panel — conversational code-gen panel, opened from aiAssisted fields.
-    // aiPanelKey identifies which node+field triggered the panel.
-    // aiConversations stores message history keyed by "nodeId/fieldName".
     aiPanelKey: null,
     aiConversations: {},
     openAiPanel: (nodeId, fieldName) => set({ aiPanelKey: { nodeId, fieldName } }),
@@ -512,21 +434,12 @@ export const useStore = create((set, get) => ({
       }));
     },
 
-    // DAG status — result of the last /pipelines/parse submission.
-    // 'pristine' : not yet checked, or graph has changed since last check
-    // 'pending'  : fetch in flight — button disabled
-    // 'valid'    : backend confirmed is_dag: true
-    // 'invalid'  : backend confirmed is_dag: false (graph contains a cycle)
     dagStatus: 'pristine',
-
-    // nodeRoles — per-node visual categorisation from the last parse result.
-    // 'outer'         : runs in the main topological execution order
-    // 'subgraph'      : runs inside a loop executor body (not outer pipeline)
-    // 'tool'          : fn-schema source — agent calls it internally at runtime
-    // 'cycle'         : part of or blocked by a cycle (invalid graph)
-    // 'cycle-terminus': the specific node whose outgoing edge closes the cycle
     nodeRoles: {},
 
+    /**
+     * Validates graph topology.
+     */
     submitPipeline: async () => {
       set({ dagStatus: 'pending' });
       const { nodes, edges } = get();
@@ -539,16 +452,13 @@ export const useStore = create((set, get) => ({
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
 
-        // Build role map from the parse result.
         const roles = {};
         (data.topo_order ?? []).forEach((id) => { roles[id] = 'outer'; });
         (data.subgraph_members ?? []).forEach((id) => { roles[id] = 'subgraph'; });
         (data.tool_nodes ?? []).forEach((id) => { roles[id] = 'tool'; });
         (data.cycle_nodes ?? []).forEach((id) => { roles[id] = 'cycle'; });
-        // cycle-terminus overwrites 'cycle' for the specific back-edge sources
         (data.cycle_back_edge_sources ?? []).forEach((id) => { roles[id] = 'cycle-terminus'; });
 
-        // Stamp back-edges on matching edges so TypedEdge can render them red.
         const backEdgeSources = new Set(data.cycle_back_edge_sources ?? []);
         const cycleNodeSet = new Set(data.cycle_nodes ?? []);
         const stampedEdges = get().edges.map((e) =>

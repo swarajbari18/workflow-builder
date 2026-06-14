@@ -1,20 +1,8 @@
 /**
  * Inspector — the floating panel where a node's configuration lives.
  *
- * Phase 2 deliberately removed all fields from the node face so the canvas shows
- * structure, not detail. The inspector is where that detail returns: it opens when a
- * node is selected (store.inspectorNodeId), renders that node's spec fields via
- * FieldControl, writes edits straight to the store, and closes on a pane click
- * (wired in ui.js) or its own close button.
- *
- * It is a Layer-4 floating panel (real Liquid Glass), pinned top-right as an overlay
- * so it never permanently eats canvas space — the explicit anti-sidebar stance in
- * DESIGN-VISION. Advanced fields are tucked behind a disclosure; showIf is honoured
- * via the shared isFieldVisible helper.
- *
- * Webhook nodes get two extra custom sections injected by WebhookUrlSection and
- * WebhookFieldsSection (webhook-node.js). Those sections sit outside the standard
- * FieldControl loop so they can own their own state and store interactions cleanly.
+ * It opens when a node is selected, renders fields via FieldControl, 
+ * and writes edits to the store.
  */
 import { useState } from 'react';
 import { shallow } from 'zustand/shallow';
@@ -110,15 +98,12 @@ export function Inspector() {
   const accent = CATEGORY_COLORS[spec.category] ?? 'rgba(255,255,255,0.15)';
   const valueOf = (field) => node.data[field.name] ?? field.default;
 
-  // Skip internal fields — they are managed by custom node panel components, not FieldControl.
   const visible = spec.fields.filter(
     (field) => !field.internal && isFieldVisible(field, node.data, spec.fields),
   );
   const basic    = visible.filter((field) => !field.advanced);
   const advanced = visible.filter((field) => field.advanced);
 
-  // Show the Advanced disclosure if there are standard advanced fields or a custom
-  // advanced section (currently: webhook fields management panel).
   const hasAdvanced = advanced.length > 0 || isWebhook;
 
   const renderField = (field) => (
@@ -143,10 +128,8 @@ export function Inspector() {
       </div>
 
       <div style={bodyStyle}>
-        {/* Webhook: URL copy row always visible at the top */}
         {isWebhook && <WebhookUrlSection data={node.data} />}
 
-        {/* Standard basic fields (path, method for webhook; all non-advanced for others) */}
         {basic.map(renderField)}
 
         {hasAdvanced && (
@@ -160,10 +143,8 @@ export function Inspector() {
 
             {showAdvanced && (
               <>
-                {/* Standard advanced fields: testMode checkbox, samplePayload, secret */}
                 {advanced.map(renderField)}
 
-                {/* Webhook: field management panel (Got your data!, Add field manually) */}
                 {isWebhook && (
                   <WebhookFieldsSection id={node.id} data={node.data} />
                 )}

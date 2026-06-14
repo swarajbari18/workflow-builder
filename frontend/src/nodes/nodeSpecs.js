@@ -1,22 +1,6 @@
 /**
  * Node registry — assembles NODE_SPECS from individual spec files and exports
  * the type system constants and connection validation utilities.
- *
- * Architecture
- * ------------
- * Each node type lives in its own file under `specs/`. This file is the join
- * point: it imports all specs, assembles the registry, and exports the shared
- * primitives (DATA_TYPES, isCompatibleTypes, isConnectionValid) that the rest
- * of the codebase depends on.
- *
- * nodeRegistry.js derives React Flow's `nodeTypes` map and the toolbar palette
- * from NODE_SPECS. Adding a new node = add a spec file in specs/ and one line
- * here. Nothing else changes.
- *
- * NodeSpec v2 shape:
- *   type, title, category, execution, handles, fields
- *   + optional: toolExposable, dynamicHandles
- * See individual spec files for full shape; typedefs below for the shared types.
  */
 
 import inputSpec      from './specs/input-spec';
@@ -33,7 +17,6 @@ import scriptSpec     from './specs/script-spec';
 
 /**
  * The 10 canonical data types for pipeline connections.
- * Frozen so type strings cannot be mutated at runtime.
  * @type {Readonly<{[key: string]: string}>}
  */
 export const DATA_TYPES = Object.freeze({
@@ -51,12 +34,7 @@ export const DATA_TYPES = Object.freeze({
 
 /**
  * @typedef {Object} HandleHiddenWhen
- * @property {string} [handleConnected]  Hide this handle when the named sibling handle on
- *                                        the same node has at least one active edge. Use this
- *                                        to express mutually exclusive modes (e.g. a `fn-schema`
- *                                        source that should disappear once an `input` wire is
- *                                        connected, because the node is now a data-transform
- *                                        rather than a reusable tool).
+ * @property {string} [handleConnected] - Hide this handle when the named sibling is connected.
  */
 
 /**
@@ -66,9 +44,9 @@ export const DATA_TYPES = Object.freeze({
  * @property {'left'|'right'} side
  * @property {string} [offset]
  * @property {string} [label]
- * @property {string} [dataType]   One of DATA_TYPES values, or 'dynamic'.
+ * @property {string} [dataType]
  * @property {boolean} [streamable]
- * @property {HandleHiddenWhen} [hiddenWhen]  Hides the handle when a runtime condition is met.
+ * @property {HandleHiddenWhen} [hiddenWhen]
  */
 
 /**
@@ -127,7 +105,7 @@ export const DATA_TYPES = Object.freeze({
  */
 
 /**
- * Every node type, keyed by `type`. Registry order determines toolbar order.
+ * Every node type, keyed by `type`.
  * @type {Object<string, NodeSpec>}
  */
 export const NODE_SPECS = {
@@ -146,15 +124,12 @@ export const NODE_SPECS = {
 
 /**
  * Returns true if a connection from sourceType to targetType is valid.
- * `any` is the wildcard — compatible with every type in both directions.
  * @param {string} sourceType
  * @param {string} targetType
  * @returns {boolean}
  */
 export function isCompatibleTypes(sourceType, targetType) {
   if (sourceType === DATA_TYPES.ANY || targetType === DATA_TYPES.ANY) return true;
-  // `dynamic` means the concrete type is resolved at runtime — treat as wildcard
-  // so dragging from a dynamic source highlights all valid target handles.
   if (sourceType === 'dynamic' || targetType === 'dynamic') return true;
   return sourceType === targetType;
 }
@@ -168,10 +143,6 @@ function handleDataType(nodes, nodeId, handleId) {
 
 /**
  * Decides whether a proposed edge is allowed.
- *
- * Rejects duplicate edges. Type checking is gradual: a connection is only
- * blocked when both endpoints declare a concrete dataType and they are
- * incompatible. Untyped, `any`, and `dynamic` handles accept anything.
  *
  * @param {{source: string, target: string, sourceHandle: string, targetHandle: string}} connection
  * @param {Array<{id: string, type: string}>} nodes

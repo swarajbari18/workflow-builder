@@ -30,8 +30,6 @@ function inferTypeFromValue(value) {
   return 'string';
 }
 
-// ── Shared styles ─────────────────────────────────────────────────────────────
-
 const sectionLabelStyle = {
   fontSize: 10,
   fontWeight: 600,
@@ -163,9 +161,6 @@ const addBtnStyle = {
   flexShrink: 0,
 };
 
-// ── WebhookUrlSection — URL row rendered at the top of the inspector body ─────
-// Shows the URL the external system should POST to. One-click copy.
-
 export function WebhookUrlSection({ data }) {
   const [copied, setCopied] = useState(false);
   const webhookUrl = `http://localhost:8000${data.path || '/webhook/new'}`;
@@ -189,10 +184,6 @@ export function WebhookUrlSection({ data }) {
     </div>
   );
 }
-
-// ── WebhookFieldsSection — field management, rendered inside Advanced ──────────
-// Shows active payload fields with remove buttons, the "Got your data!" picker
-// after a real/test run, and an "Add field manually" form.
 
 export function WebhookFieldsSection({ id, data }) {
   const updateNodeField = useStore((s) => s.updateNodeField);
@@ -248,7 +239,6 @@ export function WebhookFieldsSection({ id, data }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* Active handles */}
       {payloadFields.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           <div style={sectionLabelStyle}>Routing these fields</div>
@@ -267,7 +257,6 @@ export function WebhookFieldsSection({ id, data }) {
         </div>
       )}
 
-      {/* "Got your data!" — field picker populated after a run */}
       {payloadKeys.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           <div style={sectionLabelStyle}>
@@ -291,7 +280,6 @@ export function WebhookFieldsSection({ id, data }) {
         </div>
       )}
 
-      {/* Add field manually */}
       {!showAddForm ? (
         <button
           style={{
@@ -308,7 +296,6 @@ export function WebhookFieldsSection({ id, data }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={sectionLabelStyle}>Add a field</div>
 
-          {/* Field name — full width, never overflows */}
           <input
             style={outlineInputStyle}
             placeholder="field name  (e.g. customer_name)"
@@ -318,7 +305,6 @@ export function WebhookFieldsSection({ id, data }) {
             autoFocus
           />
 
-          {/* Type + actions on a second row — wraps naturally at narrow widths */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <select
               style={{ ...outlineInputStyle, width: 'auto', flex: '1 1 90px', padding: '5px 7px' }}
@@ -343,8 +329,6 @@ export function WebhookFieldsSection({ id, data }) {
     </div>
   );
 }
-
-// ── WebhookNode — clean card, extraHandles only ───────────────────────────────
 
 export function WebhookNode(props) {
   const { data } = props;

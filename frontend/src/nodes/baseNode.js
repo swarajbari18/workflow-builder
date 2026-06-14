@@ -3,9 +3,9 @@
  *
  * Architecture
  * ------------
- * Phase 2 visual layer: ghost glass material, category accent border, status dot,
+ * Visual layer: ghost glass material, category accent border, status dot,
  * handle shapes by data type. Fields are NOT rendered on the node face — they live
- * in the inspector (Phase 4). isFieldVisible stays exported for inspector use.
+ * in the inspector. isFieldVisible stays exported for inspector use.
  *
  * Handle proximity reveal: onMouseEnter/Leave on the card drives `handlesRevealed`
  * state, which is forwarded to each NodeHandle as an opacity signal.
@@ -106,20 +106,6 @@ const statusDotStyle = (color) => ({
   flexShrink: 0,
 });
 
-/**
- * Renders a node from its spec. `id` and `data` are injected by React Flow;
- * `spec` is bound per type in `nodeRegistry.js`. Node types that need more than the
- * generic card pass `extraHandles` (e.g. Text's dynamic `{{variable}}` handles) and/or
- * `children` (an inline body, e.g. the Output node's result display).
- *
- * @param {{
- *   id: string,
- *   data: Object,
- *   spec: import('./nodeSpecs').NodeSpec,
- *   extraHandles?: import('./nodeSpecs').Handle[],
- *   children?: React.ReactNode,
- * }} props
- */
 const handleRowStyle = {
   position: 'relative',
   display: 'flex',
@@ -143,18 +129,25 @@ const categoryIconStyle = (category) => ({
   marginRight: 7,
 });
 
+/**
+ * Renders a node from its spec.
+ *
+ * @param {{
+ *   id: string,
+ *   data: Object,
+ *   spec: import('./nodeSpecs').NodeSpec,
+ *   extraHandles?: import('./nodeSpecs').Handle[],
+ *   children?: React.ReactNode,
+ * }} props
+ */
 export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) => {
   const [handlesRevealed, setHandlesRevealed] = useState(false);
   const executionState = data.executionState ?? 'idle';
   const stateConfig = EXECUTION_STATES[executionState] ?? EXECUTION_STATES.idle;
   const edges = useRFStore((state) => state.edges);
 
-  // DAG role highlighting — populated after user hits Submit, cleared after 5s.
   const nodeRoles = useStore((s) => s.nodeRoles);
-  const nodeRole = nodeRoles[id];  // 'outer' | 'subgraph' | 'tool' | 'cycle' | 'cycle-terminus' | undefined
-  // Execution order index for outer nodes: position in topo_order array.
-  // We reconstruct order from the keys whose role is 'outer' — the order the
-  // store populated them in is the topo_order sequence.
+  const nodeRole = nodeRoles[id];
   const topoIndex = nodeRole === 'outer'
     ? Object.keys(nodeRoles).filter((k) => nodeRoles[k] === 'outer').indexOf(id)
     : -1;
@@ -172,9 +165,6 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
   const rightHandles = visibleHandles.filter((h) => h.side === 'right');
   const rowCount = Math.max(leftHandles.length, rightHandles.length, 1);
 
-  // Each handle (connection point, visual, and label) lives in one row so they stay
-  // aligned; when the handle set changes (e.g. Text gains a {{variable}}) React Flow must
-  // re-measure their positions or edge endpoints drift.
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => {
     updateNodeInternals(id);
@@ -214,8 +204,6 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
     );
   };
 
-  // While a wire is being dragged, light up nodes that can receive it and dim the rest,
-  // so the user can see where a connection is allowed without trial and error.
   const connectionMode = useStore((s) => s.connectionMode);
   const isDragSource = connectionMode?.sourceNodeId === id;
   const canReceive =
@@ -353,8 +341,6 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
         </span>
       </div>
 
-      {/* One row per handle pair — connection point, visual, and label share a row so
-          a label always sits beside its own handle. */}
       <div style={{ padding: '2px 0 8px 0' }}>
         {Array.from({ length: rowCount }, (_, i) => {
           const left = leftHandles[i];

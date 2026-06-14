@@ -1,18 +1,13 @@
 """
-HTTPExecutor — makes real async HTTP requests via httpx.
+HTTPExecutor — makes async HTTP requests via httpx.
 
 Reads configuration from node data:
-  url     — required; the full request URL
-  method  — HTTP verb (default: GET)
-  headers — dict of extra request headers
+  url     — required
+  method  — HTTP verb
+  headers — extra request headers
   params  — URL query parameters
-  body    — request body (sent as JSON when method is POST/PUT/PATCH)
-  timeout — seconds before the request is abandoned (default: 30)
-
-Returns a JSON response body when the server sends valid JSON, otherwise
-falls back to returning the raw response text as a string.
-Errors (network, timeout, HTTP 4xx/5xx) are returned as an error dict
-so the engine can emit a node_error event without crashing the pipeline.
+  body    — request body
+  timeout — seconds before the request is abandoned
 """
 from __future__ import annotations
 

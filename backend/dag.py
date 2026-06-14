@@ -23,10 +23,6 @@ Understands the pipeline graph semantics, not just raw graph theory:
     A DFS over those nodes identifies the specific back edges — the edges whose
     source node is returned as cycle_back_edge_sources. Removing any of those
     edges would break the cycle.
-
-This module is backend-only. The same GraphAnalysis result is returned from
-/pipelines/parse AND used by the execution engine (Phase 6) to obtain the
-ordered execution list.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -72,14 +68,9 @@ def _is_loop_item_edge(edge: dict) -> bool:
 
 def _source_is_loop_node(edge: dict) -> bool:
     """
-    We cannot know node types from the edge alone — the full nodes list is needed.
-    This is a handle-naming convention check: loop nodes name their subgraph entry
-    handle 'item', so the sourceHandle ends with '-item'.
-    The caller already passes this check from _collect_subgraph_members which has
-    the full nodes list. For the simpler _is_loop_item_edge used during edge iteration,
-    we rely on the convention that only loop nodes emit an '-item' source handle.
+    Confirmed by handle naming convention + node type in _collect_subgraph_members.
     """
-    return True  # confirmed by handle naming convention + node type in _collect_subgraph_members
+    return True
 
 
 def _collect_subgraph_members(nodes: list[dict], edges: list[dict]) -> set[str]:
@@ -93,7 +84,6 @@ def _collect_subgraph_members(nodes: list[dict], edges: list[dict]) -> set[str]:
     """
     loop_node_ids = {n["id"] for n in nodes if n.get("type") == LOOP_NODE_TYPE}
 
-    # Build a quick adjacency for reachability — only non-fn-schema edges.
     reachable_from: dict[str, list[str]] = {n["id"]: [] for n in nodes}
     for e in edges:
         if _is_fn_schema_edge(e):
@@ -105,7 +95,6 @@ def _collect_subgraph_members(nodes: list[dict], edges: list[dict]) -> set[str]:
     subgraph_members: set[str] = set()
 
     for loop_id in loop_node_ids:
-        # Seed: direct targets of the loop's 'item' handle
         seeds = [
             e.get("target")
             for e in edges
@@ -115,7 +104,6 @@ def _collect_subgraph_members(nodes: list[dict], edges: list[dict]) -> set[str]:
             and e.get("target")
         ]
 
-        # BFS to collect all nodes reachable from the loop body entry
         queue = list(seeds)
         while queue:
             current = queue.pop()
@@ -189,12 +177,11 @@ def analyse_graph(nodes: list[dict], edges: list[dict]) -> GraphAnalysis:
         adjacency[src].append(tgt)
         in_degree[tgt] += 1
 
-    # Kahn's algorithm
     queue = [nid for nid, deg in in_degree.items() if deg == 0]
     topo_order: list[str] = []
 
     while queue:
-        current = queue.pop(0)  # FIFO for stable ordering
+        current = queue.pop(0)
         topo_order.append(current)
         for neighbour in adjacency[current]:
             in_degree[neighbour] -= 1
@@ -203,7 +190,6 @@ def analyse_graph(nodes: list[dict], edges: list[dict]) -> GraphAnalysis:
 
     is_dag = len(topo_order) == len(outer_node_ids)
 
-    # Nodes Kahn's could not process are in (or blocked by) a cycle.
     cycle_nodes: list[str] = []
     cycle_back_edge_sources: list[str] = []
     if not is_dag:
@@ -226,7 +212,6 @@ def analyse_graph(nodes: list[dict], edges: list[dict]) -> GraphAnalysis:
 
 
 if __name__ == "__main__":
-    # Smoke block: linear chain, then a cycle.
     linear = analyse_graph(
         [{"id": "a"}, {"id": "b"}, {"id": "c"}],
         [{"source": "a", "target": "b", "data": {}}, {"source": "b", "target": "c", "data": {}}],

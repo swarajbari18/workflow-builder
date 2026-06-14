@@ -1,15 +1,12 @@
 /**
- * Stale propagation — pure logic for computing which nodes become stale
- * when a node's configuration changes.
+ * Stale propagation — computing which nodes become stale when config changes.
  *
- * A node is stale when it or any of its upstream ancestors has changed
- * config since the last run. Staleness flows DOWNSTREAM: if node B feeds
- * node C, and B's config changes, C's output is now uncertain too.
+ * Staleness flows DOWNSTREAM: if node B feeds node C, and B's config changes, 
+ * C's output is now uncertain too.
  */
 
 /**
  * Returns the IDs of all nodes that are stale given one changed node.
- * Includes the changed node itself and every node reachable downstream.
  *
  * @param {string} changedNodeId
  * @param {{id: string}[]} nodes

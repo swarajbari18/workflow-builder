@@ -1,16 +1,13 @@
 /**
- * NodeInspectionCard — a 400px floating card showing what happened to one node
- * in the last run. READ-ONLY — this is a backward-looking view, not a place
- * to configure new inputs. Right-click → "Inspect output" to open.
+ * NodeInspectionCard — floating card showing node execution results.
+ * READ-ONLY — backward-looking view.
+ * Right-click → "Inspect output" to open.
  *
  * Four sections:
- *   1. Output — what this node produced (ValueDisplay)
+ *   1. Output — what this node produced
  *   2. Inputs received — what arrived at each target handle
- *   3. Timing — start/end timestamps and duration
- *   4. Error — only rendered when the node errored
- *
- * Ghost glass material (no backdrop-filter) — it can move with the node.
- * Positioned at the right edge of the viewport as a fixed panel for simplicity.
+ *   3. Timing — duration and start time
+ *   4. Error — rendered when the node errored
  */
 import { useState } from 'react';
 import { shallow } from 'zustand/shallow';

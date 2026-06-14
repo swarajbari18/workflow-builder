@@ -6,14 +6,7 @@ the node type/field context, then returns an assistant message and any
 generated code.
 
 System prompt strategy: each node type gets a purpose-built system prompt
-that constrains the AI to produce the right kind of output:
-  condition  → Python boolean expression assigned to `result`
-  script     → Python transform that assigns `result`
-  loop       → Python while-condition expression assigned to `result`
-  (default)  → general purpose code assistant
-
-The explanation-first principle from DESIGN-VISION.md is baked into every
-system prompt: the AI must explain before presenting code.
+that constrains the AI to produce the right kind of output.
 """
 from __future__ import annotations
 
