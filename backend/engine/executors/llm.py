@@ -1,26 +1,28 @@
 """
-LLMExecutor — Phase 6 stub for LLM and Agent nodes (execution.kind = 'llm-call').
+LLMExecutor — streams a Gemini response and emits token SSE events.
 
-Phase 7 replaces this with a real Anthropic/OpenAI API call + token streaming.
+Input resolution order:
+  system prompt: wired "system" handle → node data "systemPrompt" field → None
+  user prompt:   wired "prompt" handle → node data "promptTemplate" field → error
 
-The stub returns a clearly marked placeholder so end-to-end tests can verify
-the engine routes correctly to this executor without needing API keys.
+Each streaming chunk is emitted as a token event so the frontend can render
+the typewriter effect in real time. The full accumulated text is returned as
+the executor output after the stream completes.
 
-The stub output format matches what the real executor will return:
-  response handle: str (the model's text output)
-  dataType: "string"
-  streamable: True (Phase 7 will stream tokens through the SSE queue)
+Requires GEMINI_API_KEY in the environment (load via .env before starting).
 """
 from __future__ import annotations
 
+import os
+
+import google.genai as genai
+from google.genai import types
+
 from engine.context import ExecutionContext
+from engine.events import token
 from engine.executors.base import ExecutorBase
 
-
-_STUB_NOTICE = (
-    "[LLM STUB — Phase 7 not yet implemented. "
-    "This placeholder will be replaced with a real model call.]"
-)
+_DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 class LLMExecutor(ExecutorBase):
@@ -28,17 +30,31 @@ class LLMExecutor(ExecutorBase):
         node_id = node["id"]
         data = ctx.get_node_data(node_id)
 
-        # Collect what the real executor would use — included so Phase 7 can
-        # diff against this stub and know exactly what inputs to consume.
-        system_prompt = ctx.get_input(node_id, "system")
-        user_prompt = ctx.get_input(node_id, "prompt")
-        model = data.get("model", "claude-sonnet-4-5")
+        system_prompt = ctx.get_input(node_id, "system") or data.get("systemPrompt")
+        user_prompt = ctx.get_input(node_id, "prompt") or data.get("promptTemplate")
 
-        stub_response = (
-            f"{_STUB_NOTICE}\n"
-            f"[Would call: model={model}]\n"
-            f"[system={str(system_prompt)[:80] if system_prompt else 'None'}]\n"
-            f"[prompt={str(user_prompt)[:80] if user_prompt else 'None'}]"
+        if not user_prompt:
+            return {"error": "no prompt: wire a prompt handle or set promptTemplate", "value": None, "dataType": "error"}
+
+        model = data.get("model") or _DEFAULT_MODEL
+
+        config = types.GenerateContentConfig(
+            system_instruction=system_prompt or None,
+            max_output_tokens=data.get("maxTokens", 2048),
         )
 
-        return {"response": stub_response, "value": stub_response, "dataType": "string"}
+        api_key = os.environ.get("GEMINI_API_KEY")
+        client = genai.Client(api_key=api_key)
+
+        full_text = ""
+        stream = await client.aio.models.generate_content_stream(
+            model=model,
+            contents=str(user_prompt),
+            config=config,
+        )
+        async for chunk in stream:
+            if chunk.text:
+                full_text += chunk.text
+                await ctx.emit(token(node_id, chunk.text))
+
+        return {"response": full_text, "value": full_text, "dataType": "string"}
