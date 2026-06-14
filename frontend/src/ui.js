@@ -12,10 +12,9 @@ import { nodeTypes } from './nodes/nodeRegistry';
 import { NODE_SPECS, isConnectionValid } from './nodes/nodeSpecs';
 import { TypedEdge } from './edges/typed-edge';
 import { CANVAS } from './styles/design-tokens';
+import 'reactflow/dist/style.css';
 
 const edgeTypes = { typed: TypedEdge };
-
-import 'reactflow/dist/style.css';
 
 const proOptions = { hideAttribution: true };
 
@@ -101,7 +100,12 @@ export const PipelineUI = () => {
           gap={CANVAS.gridInterval}
         />
         <Controls />
-        <MiniMap />
+        <MiniMap
+          nodeColor="#2D2D30"
+          nodeStrokeColor="rgba(255,255,255,0.10)"
+          maskColor="rgba(13,13,15,0.80)"
+          style={{ background: '#1A1A1E', border: '1px solid rgba(255,255,255,0.08)' }}
+        />
       </ReactFlow>
     </div>
   );

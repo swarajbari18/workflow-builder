@@ -126,9 +126,8 @@ export function NodeHandle({ handle, revealed, connected }) {
     ...(side === 'left'
       ? { left: -(HANDLE.hitSize / 2) }
       : { right: -(HANDLE.hitSize / 2) }),
-    ...(offset
-      ? { top: offset, transform: undefined }
-      : { top: '50%', transform: 'translateY(-50%)' }),
+    top: offset ?? '50%',
+    transform: 'translateY(-50%)',
   };
 
   return (
