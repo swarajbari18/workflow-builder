@@ -64,15 +64,19 @@ export const useStore = create((set, get) => ({
         });
     },
     onNodesChange: (changes) => {
-      // Any structural change (add, remove, position) invalidates the last DAG check.
-      if (get().dagStatus !== 'pristine') _clearHighlight(set);
+      // Only structural changes (add/remove) invalidate the DAG result.
+      // Position, dimension, and select changes are non-topological.
+      const isStructural = changes.some((c) => c.type === 'add' || c.type === 'remove');
+      if (isStructural && get().dagStatus !== 'pristine') _clearHighlight(set);
       set({
         nodes: applyNodeChanges(changes, get().nodes),
       });
     },
     onEdgesChange: (changes) => {
-      // Any edge change (add or remove) may introduce or remove a cycle.
-      if (get().dagStatus !== 'pristine') _clearHighlight(set);
+      // Only structural changes (add/remove) invalidate the DAG result.
+      // Select changes are non-topological.
+      const isStructural = changes.some((c) => c.type === 'add' || c.type === 'remove');
+      if (isStructural && get().dagStatus !== 'pristine') _clearHighlight(set);
       set({
         edges: applyEdgeChanges(changes, get().edges),
       });
