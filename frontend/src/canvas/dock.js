@@ -1,15 +1,13 @@
 /**
- * Dock — the macOS-style auto-hiding bottom bar that replaces the flat toolbar.
+ * Dock — the macOS-style bottom bar for discovering and adding nodes.
  *
- * Node discovery path: hover a category button → card tray expands upward with
- * all node types in that category → click a card → node added to canvas centre.
+ * Discoverability: the dock is pinned open while the canvas is empty (a first-time user
+ * must see how to add a node). Once the first node exists it switches to auto-hide —
+ * sliding down to a thin strip and springing back when the cursor nears the bottom edge.
  *
- * Auto-hide: the dock slides down until only a 4px strip is visible. A sentinel
- * div at the bottom edge detects cursor proximity and springs the dock back up.
- * This is implemented via CSS transforms; see ANIMATION tokens for timing.
- *
- * The dock uses Real Liquid Glass material (backdrop-filter) because it is static
- * and only one instance exists — no per-frame GPU cost concern.
+ * Each category shows an icon AND a label (the Apple-dock pattern); hovering a category
+ * opens a tray of node cards, each with a category-coloured icon tile, the node name, and
+ * a one-line description. Real Liquid Glass material (static, single instance).
  */
 import { useState, useCallback, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
@@ -18,13 +16,15 @@ import { NODE_SPECS } from '../nodes/nodeSpecs';
 import { CATEGORY_COLORS, LIQUID_GLASS, ANIMATION } from '../styles/design-tokens';
 
 const CATEGORIES = [
-  { id: 'triggers',    label: 'Triggers' },
-  { id: 'data',        label: 'Data' },
-  { id: 'ai',          label: 'AI' },
-  { id: 'control',     label: 'Control' },
-  { id: 'integration', label: 'Integration' },
-  { id: 'output',      label: 'Output' },
+  { id: 'triggers',    label: 'Triggers',    icon: '⚡' },
+  { id: 'data',        label: 'Data',        icon: '▤' },
+  { id: 'ai',          label: 'AI',          icon: '✦' },
+  { id: 'control',     label: 'Control',     icon: '⋔' },
+  { id: 'integration', label: 'Integration', icon: '⇄' },
+  { id: 'output',      label: 'Output',      icon: '▣' },
 ];
+
+const CATEGORY_ICONS = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.icon]));
 
 // One-line descriptions for each node type, used in the category tray cards.
 const NODE_DESCRIPTIONS = {
@@ -46,6 +46,7 @@ const storeSelector = (s) => ({
   getNodeID:    s.getNodeID,
   rfInstance:   s.rfInstance,
   openPalette:  s.openPalette,
+  nodeCount:    s.nodes.length,
 });
 
 const glassStyle = {
@@ -74,32 +75,42 @@ const dockBarStyle = {
   ...glassStyle,
   display: 'flex',
   alignItems: 'center',
-  gap: 4,
-  padding: '6px 12px',
+  gap: 2,
+  padding: '6px 10px',
   pointerEvents: 'all',
   userSelect: 'none',
   transition: `transform ${ANIMATION.dockRevealDurationMs}ms cubic-bezier(0.34,1.56,0.64,1)`,
 };
 
 const categoryBtnStyle = (isActive, categoryId) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
   background: isActive ? `${CATEGORY_COLORS[categoryId]}22` : 'transparent',
   border: 'none',
-  borderRadius: 8,
+  borderRadius: 10,
   cursor: 'pointer',
   padding: '6px 10px',
-  color: isActive ? CATEGORY_COLORS[categoryId] : 'rgba(255,255,255,0.65)',
-  fontSize: 12,
+  color: isActive ? CATEGORY_COLORS[categoryId] : 'rgba(255,255,255,0.80)',
+  fontSize: 12.5,
   fontFamily: 'Inter, sans-serif',
-  fontWeight: 500,
+  fontWeight: 600,
   transition: 'color 120ms, background 120ms',
   whiteSpace: 'nowrap',
 });
 
+const categoryIconStyle = (isActive, categoryId) => ({
+  fontSize: 14,
+  lineHeight: 1,
+  color: isActive ? CATEGORY_COLORS[categoryId] : 'rgba(255,255,255,0.55)',
+  transition: 'color 120ms',
+});
+
 const separatorStyle = {
   width: 1,
-  height: 20,
-  background: 'rgba(255,255,255,0.12)',
-  margin: '0 8px',
+  height: 22,
+  background: 'rgba(255,255,255,0.14)',
+  margin: '0 6px',
 };
 
 const iconBtnStyle = {
@@ -107,9 +118,9 @@ const iconBtnStyle = {
   border: 'none',
   borderRadius: 8,
   cursor: 'pointer',
-  padding: '6px 10px',
-  color: 'rgba(255,255,255,0.65)',
-  fontSize: 14,
+  padding: '6px 9px',
+  color: 'rgba(255,255,255,0.82)',
+  fontSize: 15,
   transition: 'color 120ms',
 };
 
@@ -119,38 +130,60 @@ const trayStyle = {
   padding: 8,
   display: 'flex',
   flexDirection: 'column',
-  gap: 4,
-  minWidth: 240,
+  gap: 2,
+  minWidth: 264,
   pointerEvents: 'all',
 };
 
-const nodeCardStyle = (categoryId) => ({
+const nodeCardStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
   background: 'transparent',
   border: 'none',
-  borderRadius: 8,
+  borderRadius: 10,
   cursor: 'pointer',
-  padding: '8px 10px',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'flex-start',
-  gap: 2,
+  padding: '8px 8px',
   textAlign: 'left',
   transition: 'background 120ms',
   width: '100%',
+};
+
+const cardIconTileStyle = (categoryId) => ({
+  flexShrink: 0,
+  width: 30,
+  height: 30,
+  borderRadius: 8,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 15,
+  background: `${CATEGORY_COLORS[categoryId]}26`,
+  color: CATEGORY_COLORS[categoryId],
 });
 
-const nodeCardNameStyle = (categoryId) => ({
-  color: 'rgba(255,255,255,0.9)',
+const nodeCardNameStyle = {
+  color: 'rgba(255,255,255,0.95)',
   fontSize: 13,
   fontWeight: 600,
   fontFamily: 'Inter, sans-serif',
-});
+};
 
 const nodeCardDescStyle = {
-  color: 'rgba(255,255,255,0.45)',
+  color: 'rgba(255,255,255,0.62)',
   fontSize: 11,
   fontFamily: 'Inter, sans-serif',
   lineHeight: 1.4,
+};
+
+const hintStyle = {
+  ...glassStyle,
+  marginBottom: 6,
+  padding: '6px 12px',
+  pointerEvents: 'none',
+  color: 'rgba(255,255,255,0.75)',
+  fontSize: 12,
+  fontFamily: 'Inter, sans-serif',
 };
 
 function CategoryTray({ category, onNodeSelect, onMouseLeave }) {
@@ -168,19 +201,15 @@ function CategoryTray({ category, onNodeSelect, onMouseLeave }) {
         <button
           key={spec.type}
           data-testid={`dock-node-card-${spec.type}`}
-          style={nodeCardStyle(category)}
+          style={nodeCardStyle}
           onClick={() => onNodeSelect(spec)}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
         >
-          <span
-            style={{
-              ...nodeCardNameStyle(category),
-              color: CATEGORY_COLORS[category] ?? 'rgba(255,255,255,0.9)',
-            }}
-          >
-            {spec.title}
-          </span>
-          <span style={nodeCardDescStyle}>
-            {NODE_DESCRIPTIONS[spec.type] ?? ''}
+          <span style={cardIconTileStyle(category)}>{CATEGORY_ICONS[category]}</span>
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={nodeCardNameStyle}>{spec.title}</span>
+            <span style={nodeCardDescStyle}>{NODE_DESCRIPTIONS[spec.type] ?? ''}</span>
           </span>
         </button>
       ))}
@@ -189,10 +218,14 @@ function CategoryTray({ category, onNodeSelect, onMouseLeave }) {
 }
 
 export function Dock() {
-  const { addNode, getNodeID, rfInstance, openPalette } = useStore(storeSelector, shallow);
+  const { addNode, getNodeID, rfInstance, openPalette, nodeCount } = useStore(storeSelector, shallow);
   const [activeCategory, setActiveCategory] = useState(null);
   const [dockVisible, setDockVisible] = useState(false);
   const hideTimeoutRef = useRef(null);
+
+  // Pinned open while the canvas is empty so a first-time user can find the nodes.
+  const pinned = nodeCount === 0;
+  const visible = pinned || dockVisible;
 
   const showDock = useCallback(() => {
     clearTimeout(hideTimeoutRef.current);
@@ -209,24 +242,23 @@ export function Dock() {
   const handleNodeSelect = useCallback(
     (spec) => {
       const id = getNodeID(spec.type);
-      // Place at canvas centre when no rfInstance, or convert viewport centre to flow coords.
-      let position = { x: 400, y: 300 };
+      // Cascade each placement off canvas centre so successive nodes never stack.
+      const cascade = (nodeCount % 8) * 36;
+      let position = { x: 360 + cascade, y: 220 + cascade };
       if (rfInstance) {
-        const viewportCentre = {
-          x: window.innerWidth / 2,
-          y: window.innerHeight / 2,
-        };
-        position = rfInstance.screenToFlowPosition
+        const viewportCentre = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        const centre = rfInstance.screenToFlowPosition
           ? rfInstance.screenToFlowPosition(viewportCentre)
           : rfInstance.project(viewportCentre);
+        position = { x: centre.x - 110 + cascade, y: centre.y - 40 + cascade };
       }
       addNode({ id, type: spec.type, position, data: { id, nodeType: spec.type } });
       setActiveCategory(null);
     },
-    [addNode, getNodeID, rfInstance],
+    [addNode, getNodeID, rfInstance, nodeCount],
   );
 
-  const dockTranslate = dockVisible
+  const dockTranslate = visible
     ? 'translateX(-50%) translateY(0)'
     : `translateX(-50%) translateY(calc(100% - 4px))`;
 
@@ -261,6 +293,10 @@ export function Dock() {
           />
         )}
 
+        {pinned && !activeCategory && (
+          <div style={hintStyle}>Pick a category to add your first node ↓</div>
+        )}
+
         <div data-testid="dock" style={dockBarStyle}>
           {CATEGORIES.map((cat) => (
             <button
@@ -269,6 +305,7 @@ export function Dock() {
               style={categoryBtnStyle(activeCategory === cat.id, cat.id)}
               onMouseEnter={() => setActiveCategory(cat.id)}
             >
+              <span style={categoryIconStyle(activeCategory === cat.id, cat.id)}>{cat.icon}</span>
               {cat.label}
             </button>
           ))}
