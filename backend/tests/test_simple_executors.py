@@ -142,10 +142,10 @@ class TestTemplateExecutor:
 class TestEmitExecutor:
     def test_webhook_emits_pre_seeded_payload(self):
         ctx = make_ctx(
-            nodes=[{"id": "webhook-1", "type": "webhook", "data": {}}],
-            node_outputs={"webhook-1": {"value": {"name": "World"}, "dataType": "json"}},
+            nodes=[{"id": "wh-1", "type": "webhook", "data": {}}],
+            node_outputs={"wh-1": {"value": {"name": "World"}, "dataType": "json"}},
         )
-        result = run(EmitExecutor().execute({"id": "webhook-1", "type": "webhook", "data": {}}, ctx))
+        result = run(EmitExecutor().execute({"id": "wh-1", "type": "webhook", "data": {}}, ctx))
         assert result["payload"] == {"name": "World"}
         assert result["dataType"] == "json"
 
@@ -160,6 +160,84 @@ class TestEmitExecutor:
         ctx = make_ctx(nodes=[{"id": "wh-1", "type": "webhook", "data": {}}])
         result = run(EmitExecutor().execute({"id": "wh-1", "type": "webhook", "data": {}}, ctx))
         assert result["payload"] == {}
+
+    # --- new: field extraction ---
+
+    def test_declared_field_extracted_as_own_output_key(self):
+        """
+        User declared 'customer_name' field. Payload has that key.
+        Output must have output['customer_name'] = 'Alice'.
+        """
+        import json
+        fields = json.dumps([{"key": "customer_name", "label": "customer name", "dataType": "string"}])
+        ctx = make_ctx(
+            nodes=[{"id": "wh-1", "type": "webhook", "data": {"payloadFields": fields}}],
+            node_outputs={"wh-1": {"value": {"customer_name": "Alice", "price": 29.99}, "dataType": "json"}},
+        )
+        result = run(EmitExecutor().execute({"id": "wh-1", "type": "webhook", "data": {"payloadFields": fields}}, ctx))
+        assert result["customer_name"] == "Alice"
+        # payload whole blob still present
+        assert result["payload"]["price"] == 29.99
+
+    def test_multiple_declared_fields_all_extracted(self):
+        import json
+        fields = json.dumps([
+            {"key": "name",  "label": "name",  "dataType": "string"},
+            {"key": "score", "label": "score", "dataType": "number"},
+            {"key": "tier",  "label": "tier",  "dataType": "string"},
+        ])
+        payload = {"name": "Bob", "score": 0.92, "tier": "pro", "extra": "ignored"}
+        ctx = make_ctx(
+            nodes=[{"id": "wh-1", "type": "webhook", "data": {"payloadFields": fields}}],
+            node_outputs={"wh-1": {"value": payload, "dataType": "json"}},
+        )
+        result = run(EmitExecutor().execute({"id": "wh-1", "type": "webhook", "data": {"payloadFields": fields}}, ctx))
+        assert result["name"] == "Bob"
+        assert result["score"] == 0.92
+        assert result["tier"] == "pro"
+        # Key not declared → not in output as its own key (only in payload blob)
+        assert "extra" not in result or result.get("extra") is None
+
+    def test_declared_field_missing_from_payload_returns_none(self):
+        """Payload doesn't have the declared key — output[key] should be None, not crash."""
+        import json
+        fields = json.dumps([{"key": "missing_key", "label": "missing", "dataType": "string"}])
+        ctx = make_ctx(
+            nodes=[{"id": "wh-1", "type": "webhook", "data": {"payloadFields": fields}}],
+            node_outputs={"wh-1": {"value": {"other_key": "present"}, "dataType": "json"}},
+        )
+        result = run(EmitExecutor().execute({"id": "wh-1", "type": "webhook", "data": {"payloadFields": fields}}, ctx))
+        assert result["missing_key"] is None
+
+    def test_non_dict_payload_skips_field_extraction_safely(self):
+        """Payload is a plain string — field extraction must not crash."""
+        import json
+        fields = json.dumps([{"key": "name", "label": "name", "dataType": "string"}])
+        ctx = make_ctx(
+            nodes=[{"id": "wh-1", "type": "webhook", "data": {"payloadFields": fields}}],
+            node_outputs={"wh-1": {"value": "plain-string-payload", "dataType": "string"}},
+        )
+        result = run(EmitExecutor().execute({"id": "wh-1", "type": "webhook", "data": {"payloadFields": fields}}, ctx))
+        assert result["name"] is None  # extraction skipped, returned None
+        assert result["payload"] == "plain-string-payload"  # whole value still passed through
+
+    def test_same_field_can_connect_to_multiple_nodes(self):
+        """
+        This is a routing test: confirms that the output dict has the key so it CAN
+        be resolved by get_input() from multiple downstream nodes independently.
+        (React Flow allows multiple edges from one source handle — this verifies the
+        backend output dict supports it by having the key present once, readable N times.)
+        """
+        import json
+        fields = json.dumps([{"key": "email", "label": "email", "dataType": "string"}])
+        ctx = make_ctx(
+            nodes=[{"id": "wh-1", "type": "webhook", "data": {"payloadFields": fields}}],
+            node_outputs={"wh-1": {"value": {"email": "user@example.com"}, "dataType": "json"}},
+        )
+        result = run(EmitExecutor().execute({"id": "wh-1", "type": "webhook", "data": {"payloadFields": fields}}, ctx))
+        # The same 'email' value can be read by any number of get_input() calls
+        assert result["email"] == "user@example.com"
+        assert result["payload"]["email"] == "user@example.com"  # also available via the blob
 
 
 # ===========================================================================

@@ -110,6 +110,19 @@ export const useStore = create((set, get) => ({
       // graph topology, so the DAG result is still valid for the current structure.
     },
 
+    // Bulk update of multiple data fields at once.
+    // Used by the SSE consumer to inject receivedPayload into a webhook node after
+    // a test run, without triggering multiple re-renders.
+    updateNodeData: (nodeId, dataUpdates) => {
+      set({
+        nodes: get().nodes.map((node) =>
+          node.id === nodeId
+            ? { ...node, data: { ...node.data, ...dataUpdates } }
+            : node,
+        ),
+      });
+    },
+
     deleteNode: (nodeId) => {
       if (get().dagStatus !== 'pristine') _clearHighlight(set);
       set({
