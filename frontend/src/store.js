@@ -1,18 +1,22 @@
 /**
  * Pipeline store — central state for nodes, edges, and canvas interaction.
  *
- * Three interaction systems live here alongside the core node/edge state:
- *   - Connection mode: tracks what the user is dragging and from where,
- *     so the canvas can dim incompatible nodes and open the palette on drop.
+ * Core systems:
+ *   - Connection mode: tracks what the user is dragging and from where.
  *   - Command palette: open/close with optional data-type filter for wire drops.
  *   - Context menu: one menu at a time, typed by the surface it was opened on.
- *   - DAG status: 'pristine' | 'pending' | 'valid' | 'invalid' — tracks the
- *     result of the last /pipelines/parse call. Resets to 'pristine' on any
- *     structural graph change (nodes or edges) so the indicator always reflects
- *     the current graph, not a previous one.
+ *   - DAG status: 'pristine' | 'pending' | 'valid' | 'invalid'.
  *   - nodeRoles: per-node categorisation from the last parse result.
- *     { [nodeId]: 'outer' | 'subgraph' | 'tool' | 'cycle' | 'cycle-terminus' }
- *     Auto-cleared after 5 seconds. Cleared immediately on any graph mutation.
+ *
+ * Phase 8 additions:
+ *   - nodeOutputCache: per-node run output, inputs, timing, errors — persists
+ *     across the session for inspection and partial re-execution.
+ *   - globalState: conversation history + variables from the last completed run.
+ *   - staleNodeIds: nodes whose config changed since the last run.
+ *   - statePanelOpen: whether the Global State slide-in panel is visible.
+ *   - inspectedNodeId: which node's inspection card is open (null = closed).
+ *   - testPanelNodeId: which node's test panel is open (null = closed).
+ *   - suspendedRun: context for the inline Input node suspension UI.
  */
 import { create } from "zustand";
 import {
@@ -21,11 +25,76 @@ import {
     applyEdgeChanges,
   } from 'reactflow';
 import { NODE_SPECS } from './nodes/nodeSpecs';
+import { handleSseEvent } from './canvas/sse-event-handler';
+import { getStaleNodeIds } from './canvas/stale-propagation';
 
 const BACKEND_URL = 'http://localhost:8000';
 
 // Module-level so it never triggers re-renders and clearTimeout works across calls.
 let _highlightTimer = null;
+
+/**
+ * Opens an EventSource to the run's SSE stream and applies state patches
+ * from handleSseEvent on every message. Handles the pipeline lifecycle
+ * (completed, error) with auto-reset and cleans up the source on close.
+ */
+function _subscribeToRunStream(streamUrl, run_id, get, set) {
+  const evtSource = new EventSource(streamUrl);
+
+  evtSource.onmessage = (e) => {
+    let event;
+    try { event = JSON.parse(e.data); } catch { return; }
+
+    const state = get();
+    const patch = handleSseEvent(event, state);
+    if (patch) set(patch);
+
+    // Webhook node: inject emitted output as receivedPayload for the field picker.
+    if (event.type === 'node_output') {
+      const node = get().nodes.find((n) => n.id === event.nodeId);
+      if (node?.type === 'webhook' && event.output && typeof event.output === 'object') {
+        const preview = event.output.payload ?? event.output;
+        set({
+          nodes: get().nodes.map((n) =>
+            n.id === event.nodeId
+              ? { ...n, data: { ...n.data, receivedPayload: JSON.stringify(preview) } }
+              : n,
+          ),
+        });
+      }
+    }
+
+    if (event.type === 'execution_suspended') {
+      evtSource.close();
+    }
+
+    if (event.type === 'pipeline_completed') {
+      evtSource.close();
+      setTimeout(() => {
+        set({
+          runStatus: 'idle',
+          activeRunId: null,
+          nodes: get().nodes.map((n) => ({
+            ...n,
+            data: { ...n.data, executionState: 'idle' },
+          })),
+        });
+      }, 4000);
+    }
+
+    if (event.type === 'execution_error') {
+      evtSource.close();
+      setTimeout(() => {
+        set({ runStatus: 'idle', activeRunId: null });
+      }, 4000);
+    }
+  };
+
+  evtSource.onerror = () => {
+    evtSource.close();
+    set({ runStatus: 'error', activeRunId: null });
+  };
+}
 
 function _clearHighlight(set) {
   if (_highlightTimer) { clearTimeout(_highlightTimer); _highlightTimer = null; }
@@ -99,13 +168,27 @@ export const useStore = create((set, get) => ({
     // Returns a new node object (rather than mutating in place) so React Flow
     // reliably detects the data change and re-renders the affected node.
     updateNodeField: (nodeId, fieldName, fieldValue) => {
-      set({
-        nodes: get().nodes.map((node) =>
-          node.id === nodeId
-            ? { ...node, data: { ...node.data, [fieldName]: fieldValue } }
-            : node,
-        ),
+      const { nodes, edges, staleNodeIds } = get();
+
+      // Config changes make this node and all downstream nodes stale.
+      // Internal state fields (executionState, displayState) don't trigger staleness.
+      const internalFields = new Set(['executionState', 'receivedPayload', 'payloadFields', 'testMode', 'samplePayload']);
+      const nextStale = internalFields.has(fieldName)
+        ? staleNodeIds
+        : new Set([...staleNodeIds, ...getStaleNodeIds(nodeId, nodes, edges)]);
+
+      // Apply stale executionState to all newly stale nodes.
+      const updatedNodes = nodes.map((node) => {
+        if (node.id === nodeId) {
+          return { ...node, data: { ...node.data, [fieldName]: fieldValue, executionState: nextStale.has(nodeId) ? 'stale' : node.data.executionState } };
+        }
+        if (nextStale.has(node.id) && node.data.executionState !== 'stale') {
+          return { ...node, data: { ...node.data, executionState: 'stale' } };
+        }
+        return node;
       });
+
+      set({ nodes: updatedNodes, staleNodeIds: nextStale });
       // Deliberately does NOT reset dagStatus — field values do not affect
       // graph topology, so the DAG result is still valid for the current structure.
     },
@@ -132,16 +215,46 @@ export const useStore = create((set, get) => ({
     // 'idle' | 'running' | 'completed' | 'error'
     runStatus: 'idle',
 
+    // Per-node run data: output, dataType, timing, error, streaming text, loop progress.
+    // Persists for the session so inspection cards and partial re-runs work.
+    nodeOutputCache: {},
+
+    // Conversation history + variables from the last completed run.
+    globalState: { messages: [], variables: {} },
+
+    // Node IDs whose config has changed since the last run (stale tracking).
+    staleNodeIds: new Set(),
+
+    // Global State Panel — right-side slide-in.
+    statePanelOpen: false,
+    openStatePanel: () => set({ statePanelOpen: true }),
+    closeStatePanel: () => set({ statePanelOpen: false }),
+    toggleStatePanel: () => set((s) => ({ statePanelOpen: !s.statePanelOpen })),
+
+    // Node Inspection Card — shows past-run data for one node.
+    inspectedNodeId: null,
+    openInspectionCard: (nodeId) => set({ inspectedNodeId: nodeId }),
+    closeInspectionCard: () => set({ inspectedNodeId: null }),
+
+    // Node Testing Panel — inject mock inputs and run in isolation.
+    testPanelNodeId: null,
+    openTestPanel: (nodeId) => set({ testPanelNodeId: nodeId }),
+    closeTestPanel: () => set({ testPanelNodeId: null }),
+
+    // Suspended run context — for the inline Input node suspension UI.
+    // { runId, nodeId, prompt } — null when no run is suspended.
+    suspendedRun: null,
+
     /**
-     * Executes the current pipeline and subscribes to the SSE stream,
-     * updating node executionState dots in real time as events arrive.
+     * Opens an SSE stream and drives all node visual states from the events.
+     * Uses handleSseEvent (pure) for all state transitions; handles side effects
+     * (setTimeout, evtSource.close) here.
      *
-     * Trigger payload is derived automatically: if a Webhook node has testMode
-     * enabled and a valid JSON samplePayload, that payload is used. Otherwise
-     * the pipeline starts with an empty payload (correct for Input-based pipelines).
+     * @param {Object} options
+     * @param {Object} [options.reuse_outputs] - Cached outputs for partial re-run.
      */
-    runPipeline: async () => {
-      const { nodes, edges, updateNodeData } = get();
+    runPipeline: async ({ reuse_outputs } = {}) => {
+      const { nodes, edges } = get();
 
       // Derive the trigger payload from a webhook node in test mode.
       let triggerPayload = {};
@@ -150,7 +263,7 @@ export const useStore = create((set, get) => ({
         try { triggerPayload = JSON.parse(webhookNode.data.samplePayload); } catch { /* use {} */ }
       }
 
-      // Reset all nodes to idle before starting
+      // Reset all nodes to idle, clear caches, clear stale set
       set({
         nodes: nodes.map((n) => ({
           ...n,
@@ -158,18 +271,24 @@ export const useStore = create((set, get) => ({
         })),
         runStatus: 'running',
         activeRunId: null,
+        nodeOutputCache: {},
+        staleNodeIds: new Set(),
+        suspendedRun: null,
       });
 
       try {
+        const body = {
+          nodes,
+          edges,
+          trigger_payload: triggerPayload,
+          is_development: true,
+        };
+        if (reuse_outputs) body.reuse_outputs = reuse_outputs;
+
         const r = await fetch(`${BACKEND_URL}/pipelines/run`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            nodes,
-            edges,
-            trigger_payload: triggerPayload,
-            is_development: true,
-          }),
+          body: JSON.stringify(body),
         });
 
         if (!r.ok) {
@@ -180,88 +299,155 @@ export const useStore = create((set, get) => ({
         const { run_id, stream_url } = await r.json();
         set({ activeRunId: run_id });
 
-        // Open the SSE stream — browser-native EventSource, no library needed
-        const evtSource = new EventSource(`${BACKEND_URL}${stream_url}`);
-
-        evtSource.onmessage = (e) => {
-          let event;
-          try { event = JSON.parse(e.data); } catch { return; }
-
-          switch (event.type) {
-            case 'node_started':
-              updateNodeData(event.nodeId, { executionState: 'running' });
-              break;
-
-            case 'node_completed':
-              // Briefly flash 'completed' (green dot) then settle — the glow is
-              // defined in EXECUTION_STATES.completed so no extra CSS needed.
-              updateNodeData(event.nodeId, { executionState: 'completed' });
-              break;
-
-            case 'node_skipped':
-              updateNodeData(event.nodeId, { executionState: 'skipped' });
-              break;
-
-            case 'node_error':
-              updateNodeData(event.nodeId, { executionState: 'error' });
-              break;
-
-            case 'node_output': {
-              // For Webhook nodes: inject the emitted output as receivedPayload
-              // so the "Got your data!" picker shows real values from the test run.
-              const node = get().nodes.find((n) => n.id === event.nodeId);
-              if (node?.type === 'webhook' && event.output && typeof event.output === 'object') {
-                // output is the full dict — keep only the payload blob for the preview
-                const preview = event.output.payload ?? event.output;
-                updateNodeData(event.nodeId, {
-                  receivedPayload: JSON.stringify(preview),
-                });
-              }
-              break;
-            }
-
-            case 'execution_suspended':
-              updateNodeData(event.nodeId, { executionState: 'suspended' });
-              evtSource.close();
-              set({ runStatus: 'idle', activeRunId: null });
-              break;
-
-            case 'pipeline_completed':
-              set({ runStatus: 'completed' });
-              evtSource.close();
-              // Auto-reset to idle after 4 s so the canvas doesn't stay green forever
-              setTimeout(() => {
-                set({
-                  runStatus: 'idle',
-                  activeRunId: null,
-                  nodes: get().nodes.map((n) => ({
-                    ...n,
-                    data: { ...n.data, executionState: 'idle' },
-                  })),
-                });
-              }, 4000);
-              break;
-
-            case 'execution_error':
-              set({ runStatus: 'error' });
-              evtSource.close();
-              setTimeout(() => {
-                set({ runStatus: 'idle', activeRunId: null });
-              }, 4000);
-              break;
-
-            default:
-              break;
-          }
-        };
-
-        evtSource.onerror = () => {
-          evtSource.close();
-          set({ runStatus: 'error', activeRunId: null });
-        };
+        _subscribeToRunStream(`${BACKEND_URL}${stream_url}`, run_id, get, set);
 
       } catch {
         set({ runStatus: 'error', activeRunId: null });
+      }
+    },
+
+    /**
+     * Runs only the stale nodes and their downstream, reusing cached outputs
+     * for fresh upstream nodes.
+     *
+     * @param {string} fromNodeId - The node the user right-clicked "Run from here" on.
+     */
+    runFromNode: async (fromNodeId) => {
+      const { nodes, edges, nodeOutputCache, staleNodeIds } = get();
+      const stale = staleNodeIds.size > 0 ? staleNodeIds : getStaleNodeIds(fromNodeId, nodes, edges);
+
+      // Build reuse_outputs from cached outputs of nodes that are NOT stale.
+      const reuseOutputs = {};
+      for (const [nodeId, cached] of Object.entries(nodeOutputCache)) {
+        if (!stale.has(nodeId) && cached.output !== undefined) {
+          reuseOutputs[nodeId] = { value: cached.output, output: cached.output, dataType: cached.dataType ?? 'any' };
+        }
+      }
+
+      await get().runPipeline({ reuse_outputs: reuseOutputs });
+    },
+
+    /**
+     * Runs a single node in isolation with mock inputs.
+     * Sends a synthetic single-node graph with the mock values as reuse_outputs
+     * for virtual "upstream" nodes.
+     *
+     * @param {string} nodeId
+     * @param {Object} mockInputs - { handleId: value, ... }
+     * @returns {Object} - { output, dataType, error }
+     */
+    runNodeTest: async (nodeId, mockInputs) => {
+      const { nodes, edges } = get();
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) return { error: { message: 'Node not found' } };
+
+      // Build a synthetic graph: just this node
+      const syntheticNodes = [node];
+
+      // For each mock input, create a fake source node + edge
+      const syntheticEdges = [];
+      const syntheticReuse = {};
+      for (const [handleId, value] of Object.entries(mockInputs)) {
+        const fakeNodeId = `mock-${handleId}`;
+        syntheticNodes.push({ id: fakeNodeId, type: 'text', data: { execution: { kind: 'template' }, content: '' } });
+        syntheticEdges.push({
+          id: `mock-edge-${handleId}`,
+          source: fakeNodeId,
+          target: nodeId,
+          targetHandle: `${nodeId}-${handleId}`,
+          sourceHandle: `${fakeNodeId}-output`,
+          type: 'typed',
+          data: { dataType: 'any' },
+        });
+        syntheticReuse[fakeNodeId] = { value, output: value, dataType: 'any' };
+      }
+
+      try {
+        const r = await fetch(`${BACKEND_URL}/pipelines/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nodes: syntheticNodes,
+            edges: syntheticEdges,
+            reuse_outputs: syntheticReuse,
+            is_development: true,
+          }),
+        });
+        if (!r.ok) return { error: { message: `HTTP ${r.status}` } };
+        const { run_id, stream_url } = await r.json();
+
+        // Read the SSE stream to completion and return the test node's output.
+        return new Promise((resolve) => {
+          let result = {};
+          const evtSource = new EventSource(`${BACKEND_URL}${stream_url}`);
+          evtSource.onmessage = (e) => {
+            let event;
+            try { event = JSON.parse(e.data); } catch { return; }
+            if (event.type === 'node_output' && event.nodeId === nodeId) {
+              result = { output: event.output, dataType: event.dataType };
+            }
+            if (event.type === 'node_error' && event.nodeId === nodeId) {
+              result = { error: event.error };
+            }
+            if (event.type === 'pipeline_completed' || event.type === 'execution_error') {
+              evtSource.close();
+              resolve(result);
+            }
+          };
+          evtSource.onerror = () => {
+            evtSource.close();
+            resolve({ error: { message: 'Stream error' } });
+          };
+        });
+      } catch (e) {
+        return { error: { message: e.message } };
+      }
+    },
+
+    /**
+     * Resumes a suspended run with the user's inline response.
+     * Fetches the callback_token from the DB, calls /resume, then re-subscribes.
+     *
+     * @param {string} value - The human's response text.
+     */
+    resumeRun: async (value) => {
+      const { suspendedRun, nodes, edges } = get();
+      if (!suspendedRun) return;
+
+      const { runId, nodeId } = suspendedRun;
+
+      try {
+        // Fetch the callback_token from the DB (not in the SSE event).
+        const runRes = await fetch(`${BACKEND_URL}/runs/${runId}`);
+        if (!runRes.ok) { set({ runStatus: 'error' }); return; }
+        const runData = await runRes.json();
+        const callbackToken = runData.suspension_context?.callback_token;
+        if (!callbackToken) { set({ runStatus: 'error' }); return; }
+
+        // Call the resume endpoint — writes the value to node_outputs and restarts the engine.
+        const resumeRes = await fetch(`${BACKEND_URL}/runs/${runId}/resume`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value, callback_token: callbackToken }),
+        });
+        if (!resumeRes.ok) { set({ runStatus: 'error' }); return; }
+
+        // Re-subscribe to the SSE stream for the resumed execution.
+        set({
+          runStatus: 'running',
+          suspendedRun: null,
+          nodes: nodes.map((n) =>
+            n.id === nodeId
+              ? { ...n, data: { ...n.data, executionState: 'running' } }
+              : n,
+          ),
+        });
+
+        const streamUrl = `/runs/${runId}/stream`;
+        _subscribeToRunStream(`${BACKEND_URL}${streamUrl}`, runId, get, set);
+
+      } catch {
+        set({ runStatus: 'error' });
       }
     },
 
