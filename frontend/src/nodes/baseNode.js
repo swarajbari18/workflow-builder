@@ -72,9 +72,17 @@ const statusDotStyle = (color) => ({
 
 /**
  * Renders a node from its spec. `id` and `data` are injected by React Flow;
- * `spec` is bound per type in `nodeRegistry.js`.
+ * `spec` is bound per type in `nodeRegistry.js`. Node types that need more than the
+ * generic card pass `extraHandles` (e.g. Text's dynamic `{{variable}}` handles) and/or
+ * `children` (an inline body, e.g. the Output node's result display).
  *
- * @param {{ id: string, data: Object, spec: import('./nodeSpecs').NodeSpec }} props
+ * @param {{
+ *   id: string,
+ *   data: Object,
+ *   spec: import('./nodeSpecs').NodeSpec,
+ *   extraHandles?: import('./nodeSpecs').Handle[],
+ *   children?: React.ReactNode,
+ * }} props
  */
 const handleRowStyle = {
   display: 'flex',
@@ -89,14 +97,15 @@ const handleLabelStyle = {
   fontFamily: 'Inter, sans-serif',
 };
 
-export const BaseNode = ({ id, data, spec }) => {
+export const BaseNode = ({ id, data, spec, extraHandles, children }) => {
   const [handlesRevealed, setHandlesRevealed] = useState(false);
   const executionState = data.executionState ?? 'idle';
   const stateConfig = EXECUTION_STATES[executionState] ?? EXECUTION_STATES.idle;
   const edges = useRFStore((state) => state.edges);
 
-  const leftHandles = spec.handles.filter((h) => h.side === 'left');
-  const rightHandles = spec.handles.filter((h) => h.side === 'right');
+  const handles = extraHandles ? [...spec.handles, ...extraHandles] : spec.handles;
+  const leftHandles = handles.filter((h) => h.side === 'left');
+  const rightHandles = handles.filter((h) => h.side === 'right');
   const rowCount = Math.max(leftHandles.length, rightHandles.length, 1);
 
   return (
@@ -132,7 +141,9 @@ export const BaseNode = ({ id, data, spec }) => {
         })}
       </div>
 
-      {spec.handles.map((handle) => {
+      {children}
+
+      {handles.map((handle) => {
         const fullHandleId = `${id}-${handle.id}`;
         const connected = edges.some(
           (e) => e.sourceHandle === fullHandleId || e.targetHandle === fullHandleId,
