@@ -27,6 +27,13 @@ _DEFAULT_MODEL = "gemini-2.5-flash"
 
 class LLMExecutor(ExecutorBase):
     async def execute(self, node: dict, ctx: ExecutionContext) -> dict:
+        # Source .env if exists (defensive if not already loaded by main)
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
+
         node_id = node["id"]
         data = ctx.get_node_data(node_id)
 
@@ -37,6 +44,8 @@ class LLMExecutor(ExecutorBase):
             return {"error": "no prompt: wire a prompt handle or set promptTemplate", "value": None, "dataType": "error"}
 
         model = data.get("model") or _DEFAULT_MODEL
+        if model == "custom":
+            model = data.get("customModel") or _DEFAULT_MODEL
 
         config = types.GenerateContentConfig(
             system_instruction=system_prompt or None,

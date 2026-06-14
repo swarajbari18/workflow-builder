@@ -162,8 +162,9 @@ async def execute_pipeline(
         # ------------------------------------------------------------------
         # 2. Transition run to 'running' and write to DB
         # ------------------------------------------------------------------
-        run = transition_to_running(run)
-        await _db_write(db, run_id, {"status": "running"})
+        if run["status"] != "running":
+            run = transition_to_running(run)
+            await _db_write(db, run_id, {"status": "running"})
 
         # ------------------------------------------------------------------
         # 3. Build execution context
@@ -312,6 +313,15 @@ async def execute_pipeline(
         except (RunStateError, Exception):
             pass  # run may already be in a terminal state
         raise  # re-raise so the Task is properly cancelled
+
+    except Exception as e:
+        err_msg = f"Internal Engine Error: {str(e)}"
+        await sse_queue.put(execution_error(err_msg))
+        try:
+            run = transition_to_error(run, {"message": err_msg})
+            await _db_write(db, run_id, {"status": "error", "error": run["error"]})
+        except RunStateError:
+            pass
 
     finally:
         # Always signal the SSE stream that we're done, whether success or failure
