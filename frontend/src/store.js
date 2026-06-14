@@ -10,6 +10,9 @@
  *     result of the last /pipelines/parse call. Resets to 'pristine' on any
  *     structural graph change (nodes or edges) so the indicator always reflects
  *     the current graph, not a previous one.
+ *   - nodeRoles: per-node categorisation from the last parse result.
+ *     { [nodeId]: 'outer' | 'subgraph' | 'tool' | 'cycle' | 'cycle-terminus' }
+ *     Auto-cleared after 5 seconds. Cleared immediately on any graph mutation.
  */
 import { create } from "zustand";
 import {
@@ -20,6 +23,22 @@ import {
 import { NODE_SPECS } from './nodes/nodeSpecs';
 
 const BACKEND_URL = 'http://localhost:8000';
+
+// Module-level so it never triggers re-renders and clearTimeout works across calls.
+let _highlightTimer = null;
+
+function _clearHighlight(set) {
+  if (_highlightTimer) { clearTimeout(_highlightTimer); _highlightTimer = null; }
+  set({ nodeRoles: {}, dagStatus: 'pristine' });
+}
+
+function _scheduleHighlightClear(set) {
+  if (_highlightTimer) clearTimeout(_highlightTimer);
+  _highlightTimer = setTimeout(() => {
+    _highlightTimer = null;
+    set({ nodeRoles: {}, dagStatus: 'pristine' });
+  }, 5000);
+}
 
 export const useStore = create((set, get) => ({
     nodes: [],
@@ -46,14 +65,14 @@ export const useStore = create((set, get) => ({
     },
     onNodesChange: (changes) => {
       // Any structural change (add, remove, position) invalidates the last DAG check.
-      if (get().dagStatus !== 'pristine') set({ dagStatus: 'pristine' });
+      if (get().dagStatus !== 'pristine') _clearHighlight(set);
       set({
         nodes: applyNodeChanges(changes, get().nodes),
       });
     },
     onEdgesChange: (changes) => {
       // Any edge change (add or remove) may introduce or remove a cycle.
-      if (get().dagStatus !== 'pristine') set({ dagStatus: 'pristine' });
+      if (get().dagStatus !== 'pristine') _clearHighlight(set);
       set({
         edges: applyEdgeChanges(changes, get().edges),
       });
@@ -67,7 +86,7 @@ export const useStore = create((set, get) => ({
       const dataType = sourceHandle?.dataType ?? 'any';
 
       // Adding an edge may create a cycle — reset before the user re-submits.
-      if (get().dagStatus !== 'pristine') set({ dagStatus: 'pristine' });
+      if (get().dagStatus !== 'pristine') _clearHighlight(set);
 
       set({
         edges: addEdge({ ...connection, type: 'typed', data: { dataType } }, get().edges),
@@ -88,7 +107,7 @@ export const useStore = create((set, get) => ({
     },
 
     deleteNode: (nodeId) => {
-      if (get().dagStatus !== 'pristine') set({ dagStatus: 'pristine' });
+      if (get().dagStatus !== 'pristine') _clearHighlight(set);
       set({
         nodes: get().nodes.filter((n) => n.id !== nodeId),
         edges: get().edges.filter(
@@ -108,7 +127,7 @@ export const useStore = create((set, get) => ({
         data: { ...original.data, id: newId },
         selected: false,
       };
-      if (get().dagStatus !== 'pristine') set({ dagStatus: 'pristine' });
+      if (get().dagStatus !== 'pristine') _clearHighlight(set);
       set({ nodes: [...get().nodes, copy] });
     },
 
@@ -145,6 +164,14 @@ export const useStore = create((set, get) => ({
     // 'invalid'  : backend confirmed is_dag: false (graph contains a cycle)
     dagStatus: 'pristine',
 
+    // nodeRoles — per-node visual categorisation from the last parse result.
+    // 'outer'         : runs in the main topological execution order
+    // 'subgraph'      : runs inside a loop executor body (not outer pipeline)
+    // 'tool'          : fn-schema source — agent calls it internally at runtime
+    // 'cycle'         : part of or blocked by a cycle (invalid graph)
+    // 'cycle-terminus': the specific node whose outgoing edge closes the cycle
+    nodeRoles: {},
+
     submitPipeline: async () => {
       set({ dagStatus: 'pending' });
       const { nodes, edges } = get();
@@ -156,9 +183,34 @@ export const useStore = create((set, get) => ({
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        set({ dagStatus: data.is_dag ? 'valid' : 'invalid' });
+
+        // Build role map from the parse result.
+        const roles = {};
+        (data.topo_order ?? []).forEach((id) => { roles[id] = 'outer'; });
+        (data.subgraph_members ?? []).forEach((id) => { roles[id] = 'subgraph'; });
+        (data.tool_nodes ?? []).forEach((id) => { roles[id] = 'tool'; });
+        (data.cycle_nodes ?? []).forEach((id) => { roles[id] = 'cycle'; });
+        // cycle-terminus overwrites 'cycle' for the specific back-edge sources
+        (data.cycle_back_edge_sources ?? []).forEach((id) => { roles[id] = 'cycle-terminus'; });
+
+        // Stamp back-edges on matching edges so TypedEdge can render them red.
+        const backEdgeSources = new Set(data.cycle_back_edge_sources ?? []);
+        const cycleNodeSet = new Set(data.cycle_nodes ?? []);
+        const stampedEdges = get().edges.map((e) =>
+          backEdgeSources.has(e.source) && cycleNodeSet.has(e.target)
+            ? { ...e, data: { ...e.data, isBackEdge: true } }
+            : { ...e, data: { ...e.data, isBackEdge: false } }
+        );
+
+        set({
+          dagStatus: data.is_dag ? 'valid' : 'invalid',
+          nodeRoles: roles,
+          edges: stampedEdges,
+        });
+
+        _scheduleHighlightClear(set);
       } catch {
-        set({ dagStatus: 'invalid' });
+        set({ dagStatus: 'invalid', nodeRoles: {} });
       }
     },
   }));

@@ -18,6 +18,12 @@ Understands the pipeline graph semantics, not just raw graph theory:
     variable handles, Condition branch outputs, parallel paths) is a normal
     directed data-flow edge. Kahn's algorithm handles all of them correctly.
 
+  - Cycle detection: when the graph is NOT a DAG, the nodes that could not be
+    processed by Kahn's algorithm are the cycle members (or depend on the cycle).
+    A DFS over those nodes identifies the specific back edges — the edges whose
+    source node is returned as cycle_back_edge_sources. Removing any of those
+    edges would break the cycle.
+
 This module is backend-only. The same GraphAnalysis result is returned from
 /pipelines/parse AND used by the execution engine (Phase 6) to obtain the
 ordered execution list.
@@ -34,7 +40,11 @@ LOOP_ITEM_HANDLE_SUFFIX = "-item"
 @dataclass
 class GraphAnalysis:
     is_dag: bool
-    topo_order: list[str]
+    topo_order: list[str]           # outer nodes in execution order
+    subgraph_members: list[str]     # loop body nodes (run inside loop executor)
+    tool_nodes: list[str]           # fn-schema sources (called internally by agent)
+    cycle_nodes: list[str]          # nodes in/dependent on a cycle (is_dag=False only)
+    cycle_back_edge_sources: list[str]  # nodes whose outgoing edge closes the cycle
     num_nodes: int
     num_edges: int
 
@@ -117,6 +127,39 @@ def _collect_subgraph_members(nodes: list[dict], edges: list[dict]) -> set[str]:
     return subgraph_members
 
 
+def _find_back_edge_sources(cycle_node_ids: set[str], adjacency: dict[str, list[str]]) -> list[str]:
+    """
+    DFS over the cycle subgraph to find back-edge source nodes.
+
+    A back edge is one from a node currently on the DFS stack to an ancestor
+    also on the stack — it is the edge that closes the loop. Its source node
+    is the one the user should disconnect to break the cycle.
+
+    Returns a list (possibly more than one for complex cycles) of node IDs
+    that are the sources of back edges within the cycle subgraph.
+    """
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {n: WHITE for n in cycle_node_ids}
+    back_edge_sources: list[str] = []
+
+    def dfs(u: str) -> None:
+        color[u] = GRAY
+        for v in adjacency.get(u, []):
+            if v not in cycle_node_ids:
+                continue
+            if color[v] == GRAY and u not in back_edge_sources:
+                back_edge_sources.append(u)
+            elif color[v] == WHITE:
+                dfs(v)
+        color[u] = BLACK
+
+    for node in cycle_node_ids:
+        if color[node] == WHITE:
+            dfs(node)
+
+    return back_edge_sources
+
+
 def analyse_graph(nodes: list[dict], edges: list[dict]) -> GraphAnalysis:
     """
     Validates the pipeline graph and returns an execution-ordered node list.
@@ -160,9 +203,23 @@ def analyse_graph(nodes: list[dict], edges: list[dict]) -> GraphAnalysis:
 
     is_dag = len(topo_order) == len(outer_node_ids)
 
+    # Nodes Kahn's could not process are in (or blocked by) a cycle.
+    cycle_nodes: list[str] = []
+    cycle_back_edge_sources: list[str] = []
+    if not is_dag:
+        processed = set(topo_order)
+        cycle_nodes = [nid for nid in outer_node_ids if nid not in processed]
+        cycle_back_edge_sources = _find_back_edge_sources(set(cycle_nodes), adjacency)
+
+    tool_nodes = [e["source"] for e in edges if _is_fn_schema_edge(e)]
+
     return GraphAnalysis(
         is_dag=is_dag,
         topo_order=topo_order if is_dag else [],
+        subgraph_members=list(subgraph_members),
+        tool_nodes=tool_nodes,
+        cycle_nodes=cycle_nodes,
+        cycle_back_edge_sources=cycle_back_edge_sources,
         num_nodes=len(nodes),
         num_edges=len(edges),
     )

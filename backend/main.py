@@ -113,6 +113,10 @@ def parse_pipeline(req: ParseRequest):
     return {
         "is_dag": result.is_dag,
         "topo_order": result.topo_order,
+        "subgraph_members": result.subgraph_members,
+        "tool_nodes": result.tool_nodes,
+        "cycle_nodes": result.cycle_nodes,
+        "cycle_back_edge_sources": result.cycle_back_edge_sources,
         "num_nodes": result.num_nodes,
         "num_edges": result.num_edges,
     }

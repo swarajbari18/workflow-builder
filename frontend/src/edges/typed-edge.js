@@ -17,6 +17,10 @@
  *
  * `data-wire-color` on the <path> exposes the color for tests without relying
  * on computed SVG fill/stroke values.
+ *
+ * Back-edge rendering: when `data.isBackEdge` is true (stamped by store.js after
+ * a failed DAG parse), the wire renders in red with an animated marching-ant dash —
+ * the visual "closing edge" that shows the user exactly which wire creates the cycle.
  */
 import { getBezierPath, EdgeLabelRenderer } from 'reactflow';
 import { DATA_TYPE_COLORS, WIRE } from '../styles/design-tokens';
@@ -37,10 +41,13 @@ const RAINBOW_COLORS = [
   { offset: '100%', color: '#FF2D78' },
 ];
 
+const BACK_EDGE_COLOR = '#FF3B30';
+
 /**
  * Custom edge that inherits the source handle's data type color.
+ * When data.isBackEdge is true, renders as an animated red marching-ant wire.
  *
- * @param {import('reactflow').EdgeProps & { data: { dataType?: string } }} props
+ * @param {import('reactflow').EdgeProps & { data: { dataType?: string, isBackEdge?: boolean } }} props
  */
 export function TypedEdge({
   id,
@@ -52,14 +59,15 @@ export function TypedEdge({
   targetPosition,
   data,
 }) {
+  const isBackEdge = data?.isBackEdge === true;
   const dataType = data?.dataType ?? 'any';
   const rawColor = DATA_TYPE_COLORS[dataType];
   const isRainbow = rawColor === 'rainbow';
   const color = isRainbow ? null : (rawColor ?? DATA_TYPE_COLORS.any);
 
   const gradientId = `wire-rainbow-${id}`;
-  const badgeColor = isRainbow ? '#FFFFFF' : color;
-  const badgeLabel = TYPE_LABELS[dataType] ?? dataType;
+  const badgeColor = isBackEdge ? BACK_EDGE_COLOR : (isRainbow ? '#FFFFFF' : color);
+  const badgeLabel = isBackEdge ? '✕ cycle' : (TYPE_LABELS[dataType] ?? dataType);
 
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -70,6 +78,60 @@ export function TypedEdge({
     targetPosition,
     curvature: WIRE.bezierControlPointRatio,
   });
+
+  if (isBackEdge) {
+    return (
+      <g>
+        {/* Wide translucent glow behind the dashed stroke */}
+        <path
+          d={edgePath}
+          stroke={BACK_EDGE_COLOR}
+          strokeWidth={6}
+          strokeOpacity={0.18}
+          fill="none"
+        />
+        <path
+          id={id}
+          d={edgePath}
+          stroke={BACK_EDGE_COLOR}
+          strokeWidth={WIRE.hoverThickness}
+          strokeOpacity={0.9}
+          strokeDasharray="6 4"
+          fill="none"
+          data-wire-color={BACK_EDGE_COLOR}
+          style={{ animation: 'back-edge-march 0.7s linear infinite' }}
+        />
+        <style>{`
+          @keyframes back-edge-march {
+            from { stroke-dashoffset: 0; }
+            to   { stroke-dashoffset: -20; }
+          }
+        `}</style>
+        <EdgeLabelRenderer>
+          <div
+            data-edge-badge={badgeLabel}
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: 'none',
+              padding: '1px 7px',
+              borderRadius: 999,
+              fontSize: 10,
+              fontWeight: 700,
+              fontFamily: 'Inter, sans-serif',
+              letterSpacing: '0.02em',
+              color: BACK_EDGE_COLOR,
+              background: 'rgba(13,13,15,0.92)',
+              border: `1px solid ${BACK_EDGE_COLOR}88`,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {badgeLabel}
+          </div>
+        </EdgeLabelRenderer>
+      </g>
+    );
+  }
 
   return (
     <g>

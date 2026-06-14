@@ -144,6 +144,23 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
   const stateConfig = EXECUTION_STATES[executionState] ?? EXECUTION_STATES.idle;
   const edges = useRFStore((state) => state.edges);
 
+  // DAG role highlighting — populated after user hits Submit, cleared after 5s.
+  const nodeRoles = useStore((s) => s.nodeRoles);
+  const nodeRole = nodeRoles[id];  // 'outer' | 'subgraph' | 'tool' | 'cycle' | 'cycle-terminus' | undefined
+  // Execution order index for outer nodes: position in topo_order array.
+  // We reconstruct order from the keys whose role is 'outer' — the order the
+  // store populated them in is the topo_order sequence.
+  const topoIndex = nodeRole === 'outer'
+    ? Object.keys(nodeRoles).filter((k) => nodeRoles[k] === 'outer').indexOf(id)
+    : -1;
+
+  const roleClass = nodeRole === 'outer'          ? 'node-role-outer'
+                  : nodeRole === 'subgraph'        ? 'node-role-subgraph'
+                  : nodeRole === 'tool'            ? 'node-role-tool'
+                  : nodeRole === 'cycle'           ? 'node-role-cycle'
+                  : nodeRole === 'cycle-terminus'  ? 'node-role-cycle-terminus'
+                  : '';
+
   const handles = extraHandles ? [...spec.handles, ...extraHandles] : spec.handles;
   const visibleHandles = handles.filter((h) => !isHandleHidden(h, id, edges));
   const leftHandles = visibleHandles.filter((h) => h.side === 'left');
@@ -214,6 +231,7 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
 
   return (
     <div
+      className={roleClass}
       style={{ ...cardStyle(spec.category), ...stateStyle, transition: 'opacity 150ms ease, box-shadow 150ms ease' }}
       data-execution-state={executionState}
       data-handles-revealed={String(handlesRevealed)}
@@ -228,11 +246,83 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
           </span>
           <span>{data.label || spec.title}</span>
         </span>
-        <div
-          data-status-dot
-          data-status-color={stateConfig.color}
-          style={statusDotStyle(stateConfig.color)}
-        />
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          {nodeRole === 'outer' && topoIndex >= 0 && (
+            <span
+              data-role-badge="outer"
+              style={{
+                fontSize: 10, fontWeight: 700, fontFamily: 'Inter, sans-serif',
+                color: 'rgba(52,199,89,0.9)',
+                background: 'rgba(52,199,89,0.12)',
+                border: '1px solid rgba(52,199,89,0.3)',
+                borderRadius: 999, padding: '0 5px', lineHeight: '16px',
+              }}
+            >
+              {topoIndex + 1}
+            </span>
+          )}
+          {nodeRole === 'subgraph' && (
+            <span
+              data-role-badge="subgraph"
+              style={{
+                fontSize: 10, fontWeight: 600, fontFamily: 'Inter, sans-serif',
+                color: 'rgba(191,90,242,0.9)',
+                background: 'rgba(191,90,242,0.12)',
+                border: '1px solid rgba(191,90,242,0.3)',
+                borderRadius: 999, padding: '0 5px', lineHeight: '16px',
+              }}
+            >
+              ⟲ loop
+            </span>
+          )}
+          {nodeRole === 'tool' && (
+            <span
+              data-role-badge="tool"
+              style={{
+                fontSize: 10, fontWeight: 600, fontFamily: 'Inter, sans-serif',
+                color: 'rgba(255,149,0,0.9)',
+                background: 'rgba(255,149,0,0.12)',
+                border: '1px solid rgba(255,149,0,0.3)',
+                borderRadius: 999, padding: '0 5px', lineHeight: '16px',
+              }}
+            >
+              ⚙ tool
+            </span>
+          )}
+          {nodeRole === 'cycle-terminus' && (
+            <span
+              data-role-badge="cycle-terminus"
+              style={{
+                fontSize: 10, fontWeight: 700, fontFamily: 'Inter, sans-serif',
+                color: 'rgba(255,59,48,0.95)',
+                background: 'rgba(255,59,48,0.15)',
+                border: '1px solid rgba(255,59,48,0.4)',
+                borderRadius: 999, padding: '0 5px', lineHeight: '16px',
+              }}
+            >
+              ✕ cycle
+            </span>
+          )}
+          {nodeRole === 'cycle' && (
+            <span
+              data-role-badge="cycle"
+              style={{
+                fontSize: 10, fontWeight: 600, fontFamily: 'Inter, sans-serif',
+                color: 'rgba(255,59,48,0.8)',
+                background: 'rgba(255,59,48,0.10)',
+                border: '1px solid rgba(255,59,48,0.25)',
+                borderRadius: 999, padding: '0 5px', lineHeight: '16px',
+              }}
+            >
+              cycle
+            </span>
+          )}
+          <div
+            data-status-dot
+            data-status-color={stateConfig.color}
+            style={statusDotStyle(stateConfig.color)}
+          />
+        </span>
       </div>
 
       {/* One row per handle pair — connection point, visual, and label share a row so
