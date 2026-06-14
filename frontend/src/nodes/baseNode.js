@@ -10,8 +10,8 @@
  * Handle proximity reveal: onMouseEnter/Leave on the card drives `handlesRevealed`
  * state, which is forwarded to each NodeHandle as an opacity signal.
  */
-import { useState, Fragment } from 'react';
-import { Handle, Position, useStore as useRFStore } from 'reactflow';
+import { useState, useEffect, Fragment } from 'react';
+import { Handle, Position, useStore as useRFStore, useUpdateNodeInternals } from 'reactflow';
 import { NODE_CARD, CATEGORY_COLORS, CATEGORY_ICONS, EXECUTION_STATES, HANDLE, CONNECTION_MODE, SELECTION_RING } from '../styles/design-tokens';
 import { NodeHandle } from './node-handle';
 import { useStore } from '../store';
@@ -87,9 +87,12 @@ const statusDotStyle = (color) => ({
  * }} props
  */
 const handleRowStyle = {
+  position: 'relative',
   display: 'flex',
+  alignItems: 'center',
   justifyContent: 'space-between',
-  padding: '2px 12px',
+  minHeight: 24,
+  padding: '3px 14px',
 };
 
 const handleLabelStyle = {
@@ -116,6 +119,48 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
   const leftHandles = handles.filter((h) => h.side === 'left');
   const rightHandles = handles.filter((h) => h.side === 'right');
   const rowCount = Math.max(leftHandles.length, rightHandles.length, 1);
+
+  // Each handle (connection point, visual, and label) lives in one row so they stay
+  // aligned; when the handle set changes (e.g. Text gains a {{variable}}) React Flow must
+  // re-measure their positions or edge endpoints drift.
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, handles.length, updateNodeInternals]);
+
+  const renderHandle = (handle) => {
+    if (!handle) return null;
+    const fullHandleId = `${id}-${handle.id}`;
+    const connected = edges.some(
+      (e) => e.sourceHandle === fullHandleId || e.targetHandle === fullHandleId,
+    );
+    const edgePosition =
+      handle.side === 'left'
+        ? { left: 0, transform: 'translate(-50%, -50%)' }
+        : { right: 0, transform: 'translate(50%, -50%)' };
+    return (
+      <Fragment>
+        <Handle
+          id={fullHandleId}
+          type={handle.kind}
+          position={handle.side === 'left' ? Position.Left : Position.Right}
+          style={{
+            width: HANDLE.hitSize,
+            height: HANDLE.hitSize,
+            background: 'transparent',
+            border: 'none',
+            top: '50%',
+            ...edgePosition,
+          }}
+        />
+        <NodeHandle
+          handle={{ ...handle, offset: undefined }}
+          revealed={handlesRevealed}
+          connected={connected}
+        />
+      </Fragment>
+    );
+  };
 
   // While a wire is being dragged, light up nodes that can receive it and dim the rest,
   // so the user can see where a connection is allowed without trial and error.
@@ -160,8 +205,9 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
         />
       </div>
 
-      {/* Handle label rows — each row pairs one left handle with one right handle */}
-      <div style={{ padding: '4px 0 8px 0' }}>
+      {/* One row per handle pair — connection point, visual, and label share a row so
+          a label always sits beside its own handle. */}
+      <div style={{ padding: '2px 0 8px 0' }}>
         {Array.from({ length: rowCount }, (_, i) => {
           const left = leftHandles[i];
           const right = rightHandles[i];
@@ -171,40 +217,14 @@ export const BaseNode = ({ id, data, spec, extraHandles, children, selected }) =
             <div key={i} style={handleRowStyle}>
               <span style={handleLabelStyle}>{leftLabel ? `◁ ${leftLabel}` : ''}</span>
               <span style={handleLabelStyle}>{rightLabel ? `${rightLabel} ▷` : ''}</span>
+              {renderHandle(left)}
+              {renderHandle(right)}
             </div>
           );
         })}
       </div>
 
       {children}
-
-      {handles.map((handle) => {
-        const fullHandleId = `${id}-${handle.id}`;
-        const connected = edges.some(
-          (e) => e.sourceHandle === fullHandleId || e.targetHandle === fullHandleId,
-        );
-        return (
-          <Fragment key={handle.id}>
-            <Handle
-              id={fullHandleId}
-              type={handle.kind}
-              position={handle.side === 'left' ? Position.Left : Position.Right}
-              style={{
-                width: HANDLE.hitSize,
-                height: HANDLE.hitSize,
-                background: 'transparent',
-                border: 'none',
-                ...(handle.offset ? { top: handle.offset } : {}),
-              }}
-            />
-            <NodeHandle
-              handle={handle}
-              revealed={handlesRevealed}
-              connected={connected}
-            />
-          </Fragment>
-        );
-      })}
     </div>
   );
 };
